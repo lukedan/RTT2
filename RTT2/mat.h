@@ -396,7 +396,7 @@ namespace rtt2 {
 
 	struct camera_spec {
 		vec3 pos, forward, up, right_cache;
-		rtt2_float aspect_ratio, hori_fov;
+		rtt2_float aspect_ratio, hori_fov, znear, zfar;
 
 		void make_cache() {
 			vec3::cross_ref(forward, up, right_cache);
@@ -422,28 +422,23 @@ namespace rtt2 {
 		res[3][2] = diff.z;
 	}
 	inline void get_trans_rotation_3(const vec3 &center, const vec3 &axis, rtt2_float angle, mat4 &res) {
-		vec3 prp, aaa(std::abs(axis.x), std::abs(axis.y), std::abs(axis.z));
-		if (aaa.x < aaa.y && aaa.x < aaa.z) {
-			prp = vec3(0.0, axis.z, -axis.y);
-		} else if (aaa.y < aaa.z) {
-			prp = vec3(-axis.z, 0.0, axis.x);
-		} else {
-			prp = vec3(axis.y, -axis.x, 0.0);
-		}
-		vec3 x = vec3::cross(axis, prp), y = vec3::cross(axis, x);
+		vec3 x, y;
+		axis.get_max_prp(x);
+		vec3::cross_ref(axis, x, y);
 		x.set_length(y.length());
 		rtt2_float cosv = std::cos(angle), sinv = std::sin(angle);
 		get_trans_pts_to_pts_3(center, center + axis, center + x, center + y, center, center + axis, center + cosv * x + sinv * y, center - sinv * x + cosv * y, res);
 		// TODO see if this is right
 	}
-	inline void get_trans_camview_3(const vec3 &pos, const vec3 &dir, const vec3 &up, mat4 &res) {
-		vec3 right;
-		vec3::cross_ref(dir, up, right);
+	inline void get_trans_camview_3(const vec3 &pos, const vec3 &dir, const vec3 &up, const vec3 &right, mat4 &res) {
 		get_trans_pts_to_pts_3(
 			pos, pos + dir, pos + up, pos + right,
 			vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, -1.0), vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0),
 			res
 		);
+	}
+	inline void get_trans_camview_3(const camera_spec &cam, mat4 &res) {
+		get_trans_camview_3(cam.pos, cam.forward, cam.up, cam.right_cache, res);
 	}
 	inline void get_trans_frustrum_3(rtt2_float hori_fov, rtt2_float aspect_ratio, rtt2_float znear, rtt2_float zfar, mat4 &res) {
 		rtt2_float nfdist = zfar - znear, rdist = nfdist / std::tan(0.5 * hori_fov);
@@ -456,5 +451,8 @@ namespace rtt2 {
 			res[1][0] = res[1][2] = res[1][3] =
 			res[2][0] = res[2][1] =
 			res[3][0] = res[3][1] = res[3][3] = 0.0;
+	}
+	inline void get_trans_frustrum_3(const camera_spec &cam, mat4 &res) {
+		get_trans_frustrum_3(cam.hori_fov, cam.aspect_ratio, cam.znear, cam.zfar, res);
 	}
 }

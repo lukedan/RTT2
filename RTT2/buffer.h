@@ -5,7 +5,7 @@
 #include "color.h"
 
 namespace rtt2 {
-	class sys_color_buffer { // TODO depth, stencil
+	class sys_color_buffer {
 	public:
 		typedef device_color element_type;
 
@@ -65,6 +65,7 @@ namespace rtt2 {
 	typedef mem_buffer<unsigned char> mem_stencil_buffer;
 
 	enum class buffer_set_type {
+		nograph,
 		sys,
 		mem
 	};
@@ -96,11 +97,29 @@ namespace rtt2 {
 			_type = buffer_set_type::mem;
 		}
 
+		void denormalize_scr_coord(rtt2_float &x, rtt2_float &y) const {
+			x = (x + 1) * 0.5 * _w;
+			y = (y + 1) * 0.5 * _h;
+		}
+		void denormalize_scr_coord(vec2 &r) const {
+			denormalize_scr_coord(r.x, r.y);
+		}
+		void normalize_scr_coord(size_t x, size_t y, rtt2_float &rx, rtt2_float &ry) const {
+			rx = (2 * x + 1) / static_cast<rtt2_float>(_w) - 1.0;
+			ry = (2 * y + 1) / static_cast<rtt2_float>(_h) - 1.0;
+		}
+		void normalize_scr_coord(size_t x, size_t y, vec2 &r) const {
+			normalize_scr_coord(x, y, r.x, r.y);
+		}
+
 		size_t get_w() const {
 			return _w;
 		}
 		size_t get_h() const {
 			return _h;
+		}
+		buffer_set_type get_type() const {
+			return _type;
 		}
 
 		device_color *get_color_arr() const {
@@ -111,6 +130,10 @@ namespace rtt2 {
 		}
 		mem_stencil_buffer::element_type *get_stencil_arr() const {
 			return _sbuf.get_arr();
+		}
+
+		template <typename T> T *get_at(size_t x, size_t y, T *ptr) const {
+			return ptr + (_w * y + x);
 		}
 
 		void display(HDC dc) const {
@@ -126,7 +149,7 @@ namespace rtt2 {
 
 		void *_cbuf;
 		device_color *_carr;
-		buffer_set_type _type;
+		buffer_set_type _type = buffer_set_type::nograph;
 
 		mem_depth_buffer _dbuf;
 		mem_stencil_buffer _sbuf;

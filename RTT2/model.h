@@ -8,7 +8,7 @@
 #include "utils.h"
 
 namespace rtt2 {
-	struct model {
+	struct model_data {
 	public:
 		struct face_info {
 			size_t vertex_ids[3], uv_ids[3], normal_ids[3];
@@ -23,6 +23,71 @@ namespace rtt2 {
 			normals.clear();
 			uvs.clear();
 			faces.clear();
+		}
+
+		void make_ball(rtt2_float radius) { // TODO use indexed vertices & normals
+			points.push_back(vec3(0.0, 0.0, 0.0));
+			normals.push_back(vec3(0.0, 0.0, 0.0));
+			uvs.push_back(vec2(0.0, 0.0));
+			struct tri {
+				tri() = default;
+				tri(const vec3 &pp1, const vec3 &pp2, const vec3 &pp3) : p1(pp1), p2(pp2), p3(pp3) {
+				}
+
+				vec3 p1, p2, p3;
+			};
+			std::vector<tri> tris;
+			// octahedron
+			vec3
+				top(0.0, 0.0, radius),
+				left(0.0, radius, 0.0),
+				fore(-radius, 0.0, 0.0),
+				right(0.0, -radius, 0.0),
+				rear(radius, 0.0, 0.0),
+				bottom(0.0, 0.0, -radius);
+			tris.push_back(tri(top, left, fore));
+			tris.push_back(tri(top, fore, right));
+			tris.push_back(tri(top, right, rear));
+			tris.push_back(tri(top, rear, left));
+			tris.push_back(tri(bottom, fore, left));
+			tris.push_back(tri(bottom, left, rear));
+			tris.push_back(tri(bottom, rear, right));
+			tris.push_back(tri(bottom, right, fore));
+			for (size_t i = 0; i < 4; ++i) {
+				for (size_t j = tris.size(); j > 0; ) {
+					--j;
+					tri &curTri = tris[j];
+					vec3
+						mid12 = (curTri.p1 + curTri.p2),
+						mid13 = (curTri.p1 + curTri.p3),
+						mid23 = (curTri.p2 + curTri.p3);
+					mid12.set_length(radius);
+					mid13.set_length(radius);
+					mid23.set_length(radius);
+					tri lb(mid12, curTri.p2, mid23), rb(mid13, mid23, curTri.p3);
+					curTri.p2 = mid12;
+					curTri.p3 = mid13;
+					tris.push_back(lb);
+					tris.push_back(rb);
+					tris.push_back(tri(mid12, mid23, mid13));
+				}
+			}
+			for (size_t i = 0; i < tris.size(); ++i) {
+				const tri &c = tris[i];
+				size_t id = points.size();
+				points.push_back(c.p1);
+				points.push_back(c.p2);
+				points.push_back(c.p3);
+				normals.push_back(c.p1 / radius);
+				normals.push_back(c.p2 / radius);
+				normals.push_back(c.p3 / radius);
+				face_info fi;
+				for (size_t j = 0; j < 3; ++j) {
+					fi.normal_ids[j] = fi.vertex_ids[j] = id + j;
+					fi.uv_ids[j] = 0;
+				}
+				faces.push_back(fi);
+			}
 		}
 
 		void load_obj(file_access &acc) {
@@ -65,19 +130,22 @@ namespace rtt2 {
 					for (size_t i = 0; i < 3; ++i) {
 						ss >> obj;
 						const char *last = obj.c_str();
-						size_t *vp = &info.vertex_ids[i];
-						size_t curc = 0;
+						size_t *vp = &info.vertex_ids[i], curc = 0;
 						for (size_t p = 0; p < 3; ++p, vp += 3, ++curc) {
-							last = &obj[curc];
-							for (; curc < obj.length(); ++curc) {
-								if (obj[curc] == '/') {
-									break;
-								}
-							}
-							if (last == &obj[curc]) {
+							if (curc >= obj.length()) {
 								*vp = 0;
 							} else {
-								*vp = std::atoi(last);
+								last = &obj[curc];
+								for (; curc < obj.length(); ++curc) {
+									if (obj[curc] == '/') {
+										break;
+									}
+								}
+								if (last == &obj[curc]) {
+									*vp = 0;
+								} else {
+									*vp = std::atoi(last);
+								}
 							}
 						}
 					}
@@ -85,5 +153,49 @@ namespace rtt2 {
 				}
 			}
 		}
+
+		void generate_normals_weighted_average() {
+			std::vector<vec3> totc(points.size(), vec3(0.0, 0.0, 0.0));
+			size_t id = 1;
+			for (auto i = faces.begin(); i != faces.end(); ++i, ++id) {
+				vec3 x = vec3::cross(points[i->vertex_ids[1]] - points[i->vertex_ids[0]], points[i->vertex_ids[2]] - points[i->vertex_ids[0]]);
+				for (size_t p = 0; p < 3; ++p) {
+					size_t cid = i->vertex_ids[p];
+					totc[cid - 1] += x;
+					i->normal_ids[p] = cid;
+				}
+			}
+			for (size_t i = 0; i < totc.size(); ++i) {
+				vec3 v = totc[i];
+				v.set_length(1.0);
+				normals.push_back(v);
+			}
+		}
+		void generate_normals_flat() {
+			size_t id = 1;
+			for (auto i = faces.begin(); i != faces.end(); ++i, ++id) {
+				normals.push_back(vec3::cross(points[i->vertex_ids[1]] - points[i->vertex_ids[0]], points[i->vertex_ids[2]] - points[i->vertex_ids[0]]));
+				for (size_t p = 0; p < 3; ++p) {
+					i->normal_ids[p] = id;
+				}
+			}
+		}
+	};
+	struct model {
+		model() = default;
+		model(
+			const model_data *d,
+			const material *m,
+			const mat4 *t,
+			const texture *te,
+			const color_vec &c
+		) : data(d), mtrl(m), trans(t), tex(te), color(c) {
+		}
+
+		const model_data *data;
+		const material *mtrl;
+		const mat4 *trans;
+		const texture *tex;
+		color_vec color;
 	};
 }

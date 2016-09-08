@@ -191,6 +191,17 @@ namespace rtt2 {
 			res.z = lhs.x * rhs.y - rhs.x * lhs.y;
 		}
 
+		inline void get_max_prp(vec3 &res) const {
+			vec3 aaa(std::abs(x), std::abs(y), std::abs(z));
+			if (aaa.x < aaa.y && aaa.x < aaa.z) {
+				cross_ref(*this, vec3(0.0, z, -y), res);
+			} else if (aaa.y < aaa.z) {
+				cross_ref(*this, vec3(-z, 0.0, x), res);
+			} else {
+				cross_ref(*this, vec3(y, -x, 0.0), res);
+			}
+		}
+
 		inline static vec3 projection(const vec3 &v, const vec3 &axis) {
 			return v * (dot(v, axis) / v.sqr_length());
 		}

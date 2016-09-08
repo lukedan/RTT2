@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <deque>
+#include <algorithm>
 
 #include <Windows.h>
 
@@ -73,6 +74,68 @@ namespace rtt2 {
 		v.w = clamp(v.w, min.w, max.w);
 	}
 
+	void max_vec(vec2 &v, const vec2 &maxv) {
+		v.x = std::max(v.x, maxv.x);
+		v.y = std::max(v.y, maxv.y);
+	}
+	void max_vec(vec2 &v, rtt2_float maxv) {
+		v.x = std::max(v.x, maxv);
+		v.y = std::max(v.y, maxv);
+	}
+	void max_vec(vec3 &v, const vec3 &maxv) {
+		v.x = std::max(v.x, maxv.x);
+		v.y = std::max(v.y, maxv.y);
+		v.z = std::max(v.z, maxv.z);
+	}
+	void max_vec(vec3 &v, rtt2_float maxv) {
+		v.x = std::max(v.x, maxv);
+		v.y = std::max(v.y, maxv);
+		v.z = std::max(v.z, maxv);
+	}
+	void max_vec(vec4 &v, const vec4 &maxv) {
+		v.x = std::max(v.x, maxv.x);
+		v.y = std::max(v.y, maxv.y);
+		v.z = std::max(v.z, maxv.z);
+		v.w = std::max(v.w, maxv.w);
+	}
+	void max_vec(vec4 &v, rtt2_float maxv) {
+		v.x = std::max(v.x, maxv);
+		v.y = std::max(v.y, maxv);
+		v.z = std::max(v.z, maxv);
+		v.w = std::max(v.w, maxv);
+	}
+
+	void min_vec(vec2 &v, const vec2 &min) {
+		v.x = std::min(v.x, min.x);
+		v.y = std::min(v.y, min.y);
+	}
+	void min_vec(vec2 &v, rtt2_float min) {
+		v.x = std::min(v.x, min);
+		v.y = std::min(v.y, min);
+	}
+	void min_vec(vec3 &v, const vec3 &min) {
+		v.x = std::min(v.x, min.x);
+		v.y = std::min(v.y, min.y);
+		v.z = std::min(v.z, min.z);
+	}
+	void min_vec(vec3 &v, rtt2_float min) {
+		v.x = std::min(v.x, min);
+		v.y = std::min(v.y, min);
+		v.z = std::min(v.z, min);
+	}
+	void min_vec(vec4 &v, const vec4 &min) {
+		v.x = std::min(v.x, min.x);
+		v.y = std::min(v.y, min.y);
+		v.z = std::min(v.z, min.z);
+		v.w = std::min(v.w, min.w);
+	}
+	void min_vec(vec4 &v, rtt2_float min) {
+		v.x = std::min(v.x, min);
+		v.y = std::min(v.y, min);
+		v.z = std::min(v.z, min);
+		v.w = std::min(v.w, min);
+	}
+
 	template <typename T> inline bool clip_line_onedir(T &fx, T &fy, T &tx, T &ty, const T &xmin, const T &xmax) {
 #define RTT2_CLIP_LINE_ONEDIR_FIXUP(X, Y, V, K)    \
 	(Y) += (K) * ((V) - (X));				       \
@@ -142,11 +205,13 @@ namespace rtt2 {
 			if (_rec.size() == 0) {
 				return 0.0;
 			}
-			long long f = _rec.front();
-			return (_rec.size() + (f - (_rec.back() - _wnd)) / static_cast<rtt2_float>(f - _lastpop)) * (_freq / static_cast<rtt2_float>(_wnd));
+			return (_rec.size() - (_rec.back() - _wnd - _lastpop) / static_cast<rtt2_float>(_rec.front() - _lastpop)) * (_freq / static_cast<rtt2_float>(_wnd));
 		}
 		rtt2_float get_singleframe_fps() const {
 			return _sf;
+		}
+		rtt2_float get_debug_fps() const {
+			return _rec.size() * (_freq / static_cast<rtt2_float>(_wnd));
 		}
 	protected:
 		std::deque<long long> _rec;

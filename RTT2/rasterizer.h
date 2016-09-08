@@ -9,6 +9,7 @@
 #include "buffer.h"
 #include "texture.h"
 #include "brdf.h"
+#include "light.h"
 
 namespace rtt2 {
 	class rasterizer {
@@ -100,22 +101,48 @@ namespace rtt2 {
 			}
 		}
 
+		struct vertex_pos_cache {
+			vec3 shaded_pos;
+			vec4 cam_pos;
+			vec2 screen_pos;
+
+			void complete(const buffer_set &buf, const mat4 &mt) {
+				cam_pos = mt * vec4(shaded_pos);
+				cam_pos.homogenize_2(screen_pos);
+				buf.denormalize_scr_coord(screen_pos);
+			}
+		};
+		struct vertex_normal_cache {
+			vec3 shaded_normal;
+		};
+		struct vertex_cache {
+			vertex_pos_cache pos;
+			vertex_normal_cache normal;
+		};
 	protected:
 		struct vertex_info {
 			vertex_info() = default;
 			vertex_info(
-				const vec4 &pp,
-				const vec3 &p3,
-				const vec3 &normal,
+				const vertex_pos_cache &cac,
+				const vertex_normal_cache &norm,
 				const vec2 &uvv,
-				const color_vec &cc
-			) : rp(&pp), tp(&p3), n(&normal), uv(&uvv), c(&cc) {
+				const color_vec &cc,
+				size_t id
+			) : pos(&cac), normal(&norm), uv(&uvv), c(&cc), oid(id) {
+			}
+			vertex_info(
+				const vertex_cache &cac,
+				const vec2 &u,
+				const color_vec &clr,
+				size_t id
+			) : pos(&cac.pos), normal(&cac.normal), uv(&u), c(&clr), oid(id) {
 			}
 
-			const vec4 *rp;
-			const vec3 *tp, *n;
+			const vertex_pos_cache *pos;
+			const vertex_normal_cache *normal;
 			const vec2 *uv;
 			const color_vec *c;
+			size_t oid;
 		};
 	public:
 		struct frag_info {
@@ -125,21 +152,22 @@ namespace rtt2 {
 			vec4 pos4_cache;
 			rtt2_float z_cache;
 
-#define RTT2_FRAG_INFO_INTERPOLATE(FIELD) (*v[0].FIELD * p + *v[1].FIELD * q + *v[2].FIELD * r)
+#define RTT2_FRAG_INFO_INTERPOLATE(FIELD) (v[0].FIELD * p + v[1].FIELD * q + v[2].FIELD * r)
+#define RTT2_FRAG_INFO_INTERPOLATE_PTR(FIELD) (*v[0].FIELD * p + *v[1].FIELD * q + *v[2].FIELD * r)
 
 			void make_cache() {
-				pos4_cache = RTT2_FRAG_INFO_INTERPOLATE(rp);
+				pos4_cache = RTT2_FRAG_INFO_INTERPOLATE(pos->cam_pos);
 				z_cache = pos4_cache.z / pos4_cache.w;
 			}
 
 			vec2 get_uv() const {
-				return RTT2_FRAG_INFO_INTERPOLATE(uv);
+				return RTT2_FRAG_INFO_INTERPOLATE_PTR(uv);
 			}
 			vec3 get_pos3() const {
-				return RTT2_FRAG_INFO_INTERPOLATE(tp);
+				return RTT2_FRAG_INFO_INTERPOLATE(pos->shaded_pos);
 			}
 			vec3 get_normal_not_normalized() const {
-				return RTT2_FRAG_INFO_INTERPOLATE(n);
+				return RTT2_FRAG_INFO_INTERPOLATE(normal->shaded_normal);
 			}
 			vec3 get_normal() const {
 				vec3 res(get_normal_not_normalized());
@@ -147,7 +175,7 @@ namespace rtt2 {
 				return res;
 			}
 			color_vec get_color_mult() const {
-				return RTT2_FRAG_INFO_INTERPOLATE(c);
+				return RTT2_FRAG_INFO_INTERPOLATE_PTR(c);
 			}
 		};
 		struct fix_proj_params {
@@ -158,11 +186,11 @@ namespace rtt2 {
 				vxc, vyc, vm;
 		};
 
-		typedef void(*vertex_shader)(const rasterizer&, const mat4&, const vec3&, const vec3&, vec3&, vec3&);
-		typedef bool(*test_shader)(const rasterizer&, const frag_info&, rtt2_float&, unsigned char&);
-		typedef void(*fragment_shader)(const rasterizer&, const frag_info&, const texture*, device_color&);
+		typedef void(*vertex_shader)(const rasterizer&, const mat4&, const vec3&, const vec3&, vec3&, vec3&, void*);
+		typedef bool(*test_shader)(const rasterizer&, const frag_info&, rtt2_float&, unsigned char&, void*);
+		typedef void(*fragment_shader)(const rasterizer&, const frag_info&, const texture*, device_color&, void*);
 
-		inline static void default_vertex_shader(const rasterizer&, const mat4 &mat, const vec3 &pos, const vec3 &n, vec3 &resr, vec3 &resn) {
+		inline static void default_vertex_shader(const rasterizer&, const mat4 &mat, const vec3 &pos, const vec3 &n, vec3 &resr, vec3 &resn, void*) {
 			transform_default(mat, pos, resr);
 			transform_default(mat, n, resn, 0.0);
 		}
@@ -170,7 +198,8 @@ namespace rtt2 {
 			const rasterizer&,
 			const frag_info &fi,
 			rtt2_float &zres,
-			unsigned char&
+			unsigned char&,
+			void*
 		) {
 			if (fi.z_cache > zres) {
 				zres = fi.z_cache;
@@ -178,32 +207,16 @@ namespace rtt2 {
 			}
 			return false;
 		}
-		inline static void default_fragment_shader_withtex(const rasterizer&, const frag_info &info, const texture *tex, device_color &res) {
-			vec3 pos(info.get_pos3()), np = pos;
-			color_vec_rgb c, clres;
-			c.x = c.y = c.z = 10.0 / pos.sqr_length();
-			np.set_length(1.0);
-			brdf_phong(np, -np, info.get_normal(), c, material_phong(1.0, 0.5, 50.0), clres);
+		inline static void default_fragment_shader_withtex(const rasterizer&, const frag_info &info, const texture *tex, device_color &res, void*) {
 			color_vec tv;
 			tex->sample(info.get_uv(), tv, uv_clamp_mode::repeat_border, sample_mode::bilinear);
 			color_vec_mult(tv, info.get_color_mult(), tv);
-			color_vec_mult(tv, vec4(clres), tv);
 			clamp_vec(tv, 0.0, 1.0);
 			res.from_vec4(tv);
 		}
-		inline static void default_fragment_shader_notex(const rasterizer&, const frag_info &info, const texture*, device_color &res) {
-			vec3 pos(info.get_pos3()), np = pos, xxx = pos - vec3(3, 4, 5);
-			color_vec_rgb c, clres;
-			c.x = c.y = c.z = 10.0 / pos.sqr_length();
-			np.set_length(1.0);
-			xxx.set_length(1.0);
-			brdf_phong(xxx, -np, info.get_normal(), c, material_phong(1.0, 0.5, 50.0), clres);
-
+		inline static void default_fragment_shader_notex(const rasterizer&, const frag_info &info, const texture*, device_color &res, void*) {
 			color_vec tv = info.get_color_mult();
-
-			color_vec_mult(tv, vec4(clres), tv);
 			clamp_vec(tv, 0.0, 1.0);
-
 			res.from_vec4(tv);
 		}
 
@@ -214,7 +227,7 @@ namespace rtt2 {
 			p = ((params.m11c + params.m11ym * y) * vx + (params.m12c + params.m12xm * x) * vy) * dm;
 			q = ((params.m21c + params.m21ym * y) * vx + (params.m22c + params.m22xm * x) * vy) * dm;
 		}
-		void get_fix_proj_params(const vec4 &p1, const vec4 &p2, const vec4 &p3, fix_proj_params &params) {
+		void get_fix_proj_params(const vec4 &p1, const vec4 &p2, const vec4 &p3, fix_proj_params &params) const {
 			vec4 v12 = p2 - p1, v23 = p3 - p2, v31 = p1 - p3;
 			params.div_c = p1.y * v23.x + p2.y * v31.x + p3.y * v12.x;
 			params.div_xm = p1.w * v23.y + p2.w * v31.y + p3.w * v12.y;
@@ -233,10 +246,9 @@ namespace rtt2 {
 		}
 
 	protected:
-		// handles all clipping work
 		void draw_half_triangle_half(
 			rtt2_float sx, rtt2_float sy, rtt2_float invk1, rtt2_float invk2, rtt2_float ymin, rtt2_float ymax,
-			const fix_proj_params &params, const vertex_info *v, const texture *tex
+			const fix_proj_params &params, const vertex_info *v, const texture *tex, void *tag
 		) {
 			sx += 0.5;
 			sy -= 0.5;
@@ -258,147 +270,134 @@ namespace rtt2 {
 					fi.r = 1.0 - fi.p - fi.q;
 					fi.v = v;
 					fi.make_cache();
-					if (shader_test(*this, fi, *frag.z, *frag.stencil)) {
-						shader_frag(*this, fi, tex, *frag.color);
+					if (shader_test(*this, fi, *frag.z, *frag.stencil, tag)) {
+						shader_frag(*this, fi, tex, *frag.color, tag);
 					}
 				}
 			}
 		}
-#ifdef DEBUG
-		void draw_triangle_debug(const vec2 &p1, const vec2 &p2, const vec2 &p3) {
-			rtt2_float
-				l = std::min({ p1.x, p2.x, p3.x }),
-				r = std::max({ p1.x, p2.x, p3.x }),
-				u = std::max({ p1.y, p2.y, p3.y }),
-				d = std::min({ p1.y, p2.y, p3.y });
-			for (size_t y = static_cast<size_t>(d + 0.5); y < static_cast<size_t>(u + 0.5); ++y) {
-				for (size_t x = static_cast<size_t>(l + 0.5); x < static_cast<size_t>(r + 0.5); ++x) {
-					bool in =
-						vec2::cross(vec2(x + 0.5, y + 0.5) - p1, p2 - p1) < 0.0 &&
-						vec2::cross(vec2(x + 0.5, y + 0.5) - p2, p3 - p2) < 0.0 &&
-						vec2::cross(vec2(x + 0.5, y + 0.5) - p3, p1 - p3) < 0.0;
-					if (in) {
-						device_color ctmp;
-						get_pixel(x, y, ctmp);
-						if (ctmp.get_r() > 128) {
-							set_pixel(x, y, device_color(255, 100, 255, 100));
-						} else {
-							set_pixel(x, y, device_color(255, 255, 0, 0));
-						}
-					}
-				}
-			}
-		}
-#endif
-		void draw_triangle_impl(const vertex_info *v, const vec2 *rposs, const texture *tex) {
-#ifdef RTT2_FORCE_WIREFRAME
+		void draw_triangle_impl(const vertex_info *v, const vec2 &p1, const vec2 &p2, const vec2 &p3, const texture *tex, void *tag) {
+#ifdef RTT2_FORCE_DOTCLOUD
 			device_color c;
 			c.from_vec4(*v[0].c);
-			draw_line(rposs[0], rposs[1], c);
-			draw_line(rposs[1], rposs[2], c);
-			draw_line(rposs[2], rposs[0], c);
+			if (p1.x > 0.0 && p1.x < cur_buf->get_w() && p1.y > 0.0 && p1.y < cur_buf->get_h()) {
+				set_pixel(p1.x, p1.y, c);
+			}
+			if (p2.x > 0.0 && p2.x < cur_buf->get_w() && p2.y > 0.0 && p2.y < cur_buf->get_h()) {
+				set_pixel(p2.x, p2.y, c);
+			}
+			if (p3.x > 0.0 && p3.x < cur_buf->get_w() && p3.y > 0.0 && p3.y < cur_buf->get_h()) {
+				set_pixel(p3.x, p3.y, c);
+			}
 #else
-			const vec2 *pscrp[3]{ &rposs[0], &rposs[1], &rposs[2] };
+#	ifdef RTT2_FORCE_WIREFRAME
+			if (cur_buf->get_type() != buffer_set_type::nograph) {
+				device_color c;
+				c.from_vec4(*v[0].c);
+				draw_line(p1, p2, c);
+				draw_line(p2, p3, c);
+				draw_line(p3, p1, c);
+			}
+#	else
+			const vec2 *pscrp[3]{ &p1, &p2, &p3 };
 			RTT2_SORT3(pscrp, ->y, < );
 			rtt2_float
 				invk_tm = (pscrp[1]->x - pscrp[0]->x) / (pscrp[1]->y - pscrp[0]->y),
 				invk_td = (pscrp[2]->x - pscrp[0]->x) / (pscrp[2]->y - pscrp[0]->y),
 				invk_md = (pscrp[2]->x - pscrp[1]->x) / (pscrp[2]->y - pscrp[1]->y);
 			fix_proj_params params;
-			get_fix_proj_params(*v[0].rp, *v[1].rp, *v[2].rp, params);
+			get_fix_proj_params(v[0].pos->cam_pos, v[1].pos->cam_pos, v[2].pos->cam_pos, params);
 			if (invk_tm < invk_td) {
-				draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_td, invk_tm, pscrp[1]->y, pscrp[0]->y, params, v, tex);
+				draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_td, invk_tm, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag);
 			} else {
-				draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_tm, invk_td, pscrp[1]->y, pscrp[0]->y, params, v, tex);
+				draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_tm, invk_td, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag);
 			}
 			if (invk_td < invk_md) {
-				draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_td, invk_md, pscrp[2]->y, pscrp[1]->y, params, v, tex);
+				draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_td, invk_md, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag);
 			} else {
-				draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_md, invk_td, pscrp[2]->y, pscrp[1]->y, params, v, tex);
+				draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_md, invk_td, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag);
 			}
+#	endif
 #endif
-	}
+		}
 
 		void clip_against_xy(const vec4 &front, const vec4 &back, vec2 &resp) {
 			(front * back.z - back * front.z).homogenize_2(resp);
 		}
 	public:
+		void draw_cached_triangle_no_backface_culling(
+			const vertex_pos_cache &v1, const vertex_pos_cache &v2, const vertex_pos_cache &v3,
+			const vertex_normal_cache &n1, const vertex_normal_cache &n2, const vertex_normal_cache &n3,
+			const vec2 &uv1, const vec2 &uv2, const vec2 &uv3,
+			const color_vec &c1, const color_vec &c2, const color_vec &c3,
+			const texture *tex, void *tag
+		) {
+			vertex_info v[3]{
+				{ v1, n1, uv1, c1, 0 },
+				{ v2, n2, uv2, c2, 1 },
+				{ v3, n3, uv3, c3, 2 }
+			};
+			RTT2_SORT3(v, .pos->cam_pos.z, < );
+			vec2 t1, t2;
+			if (v[2].pos->cam_pos.z > 0.0) {
+				return;
+			} else if (v[1].pos->cam_pos.z > 0.0) {
+				clip_against_xy(v[2].pos->cam_pos, v[0].pos->cam_pos, t1);
+				clip_against_xy(v[2].pos->cam_pos, v[1].pos->cam_pos, t2);
+				cur_buf->denormalize_scr_coord(t1);
+				cur_buf->denormalize_scr_coord(t2);
+				draw_triangle_impl(v, t1, t2, v[2].pos->screen_pos, tex, tag);
+			} else if (v[0].pos->cam_pos.z > 0.0) {
+				clip_against_xy(v[1].pos->cam_pos, v[0].pos->cam_pos, t1);
+				clip_against_xy(v[2].pos->cam_pos, v[0].pos->cam_pos, t2);
+				cur_buf->denormalize_scr_coord(t1);
+				cur_buf->denormalize_scr_coord(t2);
+				draw_triangle_impl(v, v[1].pos->screen_pos, v[2].pos->screen_pos, t1, tex, tag);
+				draw_triangle_impl(v, t1, t2, v[2].pos->screen_pos, tex, tag);
+			} else {
+				draw_triangle_impl(v, v[0].pos->screen_pos, v[1].pos->screen_pos, v[2].pos->screen_pos, tex, tag);
+			}
+		}
+		void draw_cached_triangle(
+			const vertex_pos_cache &v1, const vertex_pos_cache &v2, const vertex_pos_cache &v3,
+			const vertex_normal_cache &n1, const vertex_normal_cache &n2, const vertex_normal_cache &n3,
+			const vec2 &uv1, const vec2 &uv2, const vec2 &uv3,
+			const color_vec &c1, const color_vec &c2, const color_vec &c3,
+			const texture *tex, void *tag
+		) {
+			if (vec3::dot(v1.shaded_pos, vec3::cross(v2.shaded_pos, v3.shaded_pos)) > 0.0) {
+				return;
+			}
+			draw_cached_triangle_no_backface_culling(v1, v2, v3, n1, n2, n3, uv1, uv2, uv3, c1, c2, c3, tex, tag);
+		}
 		void draw_triangle(
 			const vec3 &p1, const vec3 &p2, const vec3 &p3,
 			const vec3 &n1, const vec3 &n2, const vec3 &n3,
 			const vec2 &uv1, const vec2 &uv2, const vec2 &uv3,
 			const color_vec &c1, const color_vec &c2, const color_vec &c3,
-			const texture *tex
+			const texture *tex, void *tag
 		) {
-			vec3 pp1, pp2, pp3, pn1, pn2, pn3;
-			shader_vtx(*this, *mat_modelview, p1, n1, pp1, pn1);
-			shader_vtx(*this, *mat_modelview, p2, n2, pp2, pn2);
-			shader_vtx(*this, *mat_modelview, p3, n3, pp3, pn3);
-			if (vec3::dot(pp1, vec3::cross(pp2, pp3)) > 0.0) {
+			vertex_cache vc[3];
+			shader_vtx(*this, *mat_modelview, p1, n1, vc[0].pos.shaded_pos, vc[0].normal.shaded_normal, tag);
+			shader_vtx(*this, *mat_modelview, p2, n2, vc[1].pos.shaded_pos, vc[1].normal.shaded_normal, tag);
+			shader_vtx(*this, *mat_modelview, p3, n3, vc[2].pos.shaded_pos, vc[2].normal.shaded_normal, tag);
+			if (vec3::dot(vc[0].pos.shaded_pos, vec3::cross(vc[1].pos.shaded_pos, vc[2].pos.shaded_pos)) > 0.0) {
 				return;
 			}
-			vec4 r1, r2, r3;
-			r1 = *mat_proj * vec4(pp1);
-			r2 = *mat_proj * vec4(pp2);
-			r3 = *mat_proj * vec4(pp3);
-			vec2 hgzd[3];
-			vertex_info v[3]{
-				{ r1, pp1, pn1, uv1, c1 },
-				{ r2, pp2, pn2, uv2, c2 },
-				{ r3, pp3, pn3, uv3, c3 }
-			};
-			RTT2_SORT3(v, .rp->z, < );
-			if (v[2].rp->z > 0.0) {
-				return;
-			} else if (v[1].rp->z > 0.0) {
-				clip_against_xy(*v[2].rp, *v[0].rp, hgzd[0]);
-				clip_against_xy(*v[2].rp, *v[1].rp, hgzd[1]);
-				v[2].rp->homogenize_2(hgzd[2]);
-				for (size_t i = 0; i < 3; ++i) {
-					denormalize_scr_coord(hgzd[i]);
-				}
-				draw_triangle_impl(v, hgzd, tex);
-			} else if (v[0].rp->z > 0.0) {
-				clip_against_xy(*v[1].rp, *v[0].rp, hgzd[0]);
-				v[1].rp->homogenize_2(hgzd[1]);
-				v[2].rp->homogenize_2(hgzd[2]);
-				for (size_t i = 0; i < 3; ++i) {
-					denormalize_scr_coord(hgzd[i]);
-				}
-				draw_triangle_impl(v, hgzd, tex);
-
-				clip_against_xy(*v[2].rp, *v[0].rp, hgzd[1]);
-				denormalize_scr_coord(hgzd[1]);
-				draw_triangle_impl(v, hgzd, tex);
-			} else {
-				for (size_t i = 0; i < 3; ++i) {
-					v[i].rp->homogenize_2(hgzd[i]);
-					denormalize_scr_coord(hgzd[i]);
-				}
-				draw_triangle_impl(v, hgzd, tex);
-			}
-		}
-
-		void denormalize_scr_coord(rtt2_float &x, rtt2_float &y) const {
-			x = (x + 1) * 0.5 * cur_buf->get_w();
-			y = (y + 1) * 0.5 * cur_buf->get_h();
-		}
-		void denormalize_scr_coord(vec2 &r) const {
-			denormalize_scr_coord(r.x, r.y);
-		}
-		void normalize_scr_coord(size_t x, size_t y, rtt2_float &rx, rtt2_float &ry) const {
-			rx = (2 * x + 1) / static_cast<rtt2_float>(cur_buf->get_w()) - 1.0;
-			ry = (2 * y + 1) / static_cast<rtt2_float>(cur_buf->get_h()) - 1.0;
-		}
-		void normalize_scr_coord(size_t x, size_t y, vec2 &r) const {
-			normalize_scr_coord(x, y, r.x, r.y);
+			vc[0].pos.complete(*cur_buf, *mat_proj);
+			vc[1].pos.complete(*cur_buf, *mat_proj);
+			vc[2].pos.complete(*cur_buf, *mat_proj);
+			draw_cached_triangle_no_backface_culling(
+				vc[0].pos, vc[1].pos, vc[2].pos, vc[0].normal, vc[1].normal, vc[2].normal,
+				uv1, uv2, uv3, c1, c2, c3, tex, tag
+			);
 		}
 
 		vertex_shader shader_vtx;
 		test_shader shader_test;
 		fragment_shader shader_frag;
 
-		mat4 *mat_proj, *mat_modelview;
+		const mat4 *mat_proj, *mat_modelview;
 	protected:
 		struct fragment_data {
 			device_color *color;
@@ -425,5 +424,5 @@ namespace rtt2 {
 			data.z = cur_buf->get_depth_arr() + id;
 			data.stencil = cur_buf->get_stencil_arr() + id;
 		}
-};
+	};
 }

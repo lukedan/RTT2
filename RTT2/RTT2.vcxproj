@@ -124,6 +124,7 @@
     <ClInclude Include="mat.h" />
     <ClInclude Include="model.h" />
     <ClInclude Include="rasterizer.h" />
+    <ClInclude Include="renderer.h" />
     <ClInclude Include="settings.h" />
     <ClInclude Include="texture.h" />
     <ClInclude Include="utils.h" />
