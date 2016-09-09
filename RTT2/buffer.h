@@ -9,12 +9,12 @@ namespace rtt2 {
 	public:
 		typedef device_color element_type;
 
-		sys_color_buffer(HDC hdc, size_t w, size_t h) : _dc(CreateCompatibleDC(hdc)) {
+		sys_color_buffer(HDC hdc, size_t w, size_t h) : _w(w), _h(h), _dc(CreateCompatibleDC(hdc)) {
 			BITMAPINFO info;
 			std::memset(&info, 0, sizeof(BITMAPINFO));
 			info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-			info.bmiHeader.biWidth = w;
-			info.bmiHeader.biHeight = h;
+			info.bmiHeader.biWidth = _w;
+			info.bmiHeader.biHeight = _h;
 			info.bmiHeader.biPlanes = 1;
 			info.bmiHeader.biBitCount = 32;
 			info.bmiHeader.biCompression = BI_RGB;
@@ -29,14 +29,21 @@ namespace rtt2 {
 			DeleteDC(_dc);
 		}
 
+		size_t get_w() const {
+			return _w;
+		}
+		size_t get_h() const {
+			return _h;
+		}
 		device_color *get_arr() const {
 			return _arr;
 		}
 
-		void display(HDC hdc, size_t w, size_t h) const {
-			BitBlt(hdc, 0, 0, w, h, _dc, 0, 0, SRCCOPY);
+		void display(HDC hdc) const {
+			BitBlt(hdc, 0, 0, _w, _h, _dc, 0, 0, SRCCOPY);
 		}
 	protected:
+		size_t _w, _h;
 		HBITMAP _bmp, _old;
 		HDC _dc;
 		device_color *_arr;
@@ -46,7 +53,7 @@ namespace rtt2 {
 	public:
 		typedef T element_type;
 
-		mem_buffer(size_t w, size_t h) : _arr(new T[w * h]) {
+		mem_buffer(size_t w, size_t h) : _w(w), _h(h), _arr(new T[_w * _h]) {
 		}
 		mem_buffer(const mem_buffer&) = delete;
 		mem_buffer &operator =(const mem_buffer&) = delete;
@@ -57,101 +64,56 @@ namespace rtt2 {
 		T *get_arr() const {
 			return _arr;
 		}
-	protected:
-		T *_arr;
-	};
-	typedef mem_buffer<device_color> mem_color_buffer;
-	typedef mem_buffer<rtt2_float> mem_depth_buffer;
-	typedef mem_buffer<unsigned char> mem_stencil_buffer;
-
-	enum class buffer_set_type {
-		nograph,
-		sys,
-		mem
-	};
-	class buffer_set {
-	public:
-		buffer_set(size_t w, size_t h) : _w(w), _h(h), _dbuf(_w, _h), _sbuf(_w, _h) {
-		}
-		~buffer_set() {
-			switch (_type) {
-				case buffer_set_type::sys:
-					delete static_cast<sys_color_buffer*>(_cbuf);
-					break;
-				case buffer_set_type::mem:
-					delete static_cast<mem_color_buffer*>(_cbuf);
-					break;
-			}
-		}
-
-		void make_sys_buffer_set(HDC dc) {
-			sys_color_buffer *buf = new sys_color_buffer(dc, _w, _h);
-			_cbuf = buf;
-			_carr = buf->get_arr();
-			_type = buffer_set_type::sys;
-		}
-		void make_mem_buffer_set() {
-			mem_color_buffer *buf = new mem_color_buffer(_w, _h);
-			_cbuf = buf;
-			_carr = buf->get_arr();
-			_type = buffer_set_type::mem;
-		}
-
-		void denormalize_scr_coord(rtt2_float &x, rtt2_float &y) const {
-			x = (x + 1) * 0.5 * _w;
-			y = (y + 1) * 0.5 * _h;
-		}
-		void denormalize_scr_coord(vec2 &r) const {
-			denormalize_scr_coord(r.x, r.y);
-		}
-		void normalize_scr_coord(size_t x, size_t y, rtt2_float &rx, rtt2_float &ry) const {
-			rx = (2 * x + 1) / static_cast<rtt2_float>(_w) - 1.0;
-			ry = (2 * y + 1) / static_cast<rtt2_float>(_h) - 1.0;
-		}
-		void normalize_scr_coord(size_t x, size_t y, vec2 &r) const {
-			normalize_scr_coord(x, y, r.x, r.y);
-		}
-
 		size_t get_w() const {
 			return _w;
 		}
 		size_t get_h() const {
 			return _h;
 		}
-		buffer_set_type get_type() const {
-			return _type;
-		}
 
-		device_color *get_color_arr() const {
-			return _carr;
-		}
-		mem_depth_buffer::element_type *get_depth_arr() const {
-			return _dbuf.get_arr();
-		}
-		mem_stencil_buffer::element_type *get_stencil_arr() const {
-			return _sbuf.get_arr();
-		}
-
-		template <typename T> T *get_at(size_t x, size_t y, T *ptr) const {
-			return ptr + (_w * y + x);
-		}
-
-		void display(HDC dc) const {
-#ifdef DEBUG
-			if (_type != buffer_set_type::sys) {
-				throw std::invalid_argument("wrong buffer type");
-			}
-#endif
-			static_cast<const sys_color_buffer*>(_cbuf)->display(dc, _w, _h);
+		T *get_at(size_t x, size_t y) const {
+			return _arr + (_w * y + x);
 		}
 	protected:
 		size_t _w, _h;
+		T *_arr;
+	};
+	typedef mem_buffer<device_color> mem_color_buffer;
+	typedef mem_buffer<rtt2_float> mem_depth_buffer;
+	typedef mem_buffer<unsigned char> mem_stencil_buffer;
 
-		void *_cbuf;
-		device_color *_carr;
-		buffer_set_type _type = buffer_set_type::nograph;
+	class buffer_set {
+	public:
+		size_t w, h;
+		device_color *color_arr;
+		rtt2_float *depth_arr;
+		unsigned char *stencil_arr;
 
-		mem_depth_buffer _dbuf;
-		mem_stencil_buffer _sbuf;
+		void set(size_t ww, size_t hh, device_color *c, rtt2_float *d, unsigned char *s) {
+			w = ww;
+			h = hh;
+			color_arr = c;
+			depth_arr = d;
+			stencil_arr = s;
+		}
+
+		template <typename T> T *get_at(size_t x, size_t y, T *arr) const {
+			return arr + (w * y + x);
+		}
+
+		void denormalize_scr_coord(rtt2_float &x, rtt2_float &y) const {
+			x = (x + 1) * 0.5 * w;
+			y = (y + 1) * 0.5 * h;
+		}
+		void denormalize_scr_coord(vec2 &r) const {
+			denormalize_scr_coord(r.x, r.y);
+		}
+		void normalize_scr_coord(size_t x, size_t y, rtt2_float &rx, rtt2_float &ry) const {
+			rx = (2 * x + 1) / static_cast<rtt2_float>(w) - 1.0;
+			ry = (2 * y + 1) / static_cast<rtt2_float>(h) - 1.0;
+		}
+		void normalize_scr_coord(size_t x, size_t y, vec2 &r) const {
+			normalize_scr_coord(x, y, r.x, r.y);
+		}
 	};
 }

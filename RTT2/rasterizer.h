@@ -18,24 +18,24 @@ namespace rtt2 {
 		rasterizer(const rasterizer&) = delete;
 		rasterizer &operator =(const rasterizer&) = delete;
 
-		buffer_set *cur_buf;
+		buffer_set cur_buf;
 
 		void clear_color_buf(const device_color &c) {
-			device_color *cur = cur_buf->get_color_arr();
-			for (size_t i = cur_buf->get_w() * cur_buf->get_h(); i > 0; --i, ++cur) {
+			device_color *cur = cur_buf.color_arr;
+			for (size_t i = cur_buf.w * cur_buf.h; i > 0; --i, ++cur) {
 				*cur = c;
 			}
 		}
 		void clear_depth_buf(rtt2_float v) {
-			rtt2_float *cur = cur_buf->get_depth_arr();
-			for (size_t i = cur_buf->get_w() * cur_buf->get_h(); i > 0; --i, ++cur) {
+			rtt2_float *cur = cur_buf.depth_arr;
+			for (size_t i = cur_buf.w * cur_buf.h; i > 0; --i, ++cur) {
 				*cur = v;
 			}
 		}
 
 		void set_pixel(size_t x, size_t y, const device_color &c) {
 #ifdef DEBUG
-			if (x >= cur_buf->get_w() || y >= cur_buf->get_h()) {
+			if (x >= cur_buf.w || y >= cur_buf.h) {
 				throw std::range_error("target pixel out of boundary");
 			}
 #endif
@@ -43,7 +43,7 @@ namespace rtt2 {
 		}
 		void get_pixel(size_t x, size_t y, device_color &c) {
 #ifdef DEBUG
-			if (x >= cur_buf->get_w() || y >= cur_buf->get_h()) {
+			if (x >= cur_buf.w || y >= cur_buf.h) {
 				throw std::range_error("target pixel out of boundary");
 			}
 #endif
@@ -52,13 +52,13 @@ namespace rtt2 {
 
 	protected:
 		void draw_line_right(rtt2_float fx, rtt2_float fy, rtt2_float tx, rtt2_float k, const device_color &c) { // handles horizontal clipping
-			size_t t = static_cast<size_t>(clamp<rtt2_float>(tx, 0.0, cur_buf->get_w() - 1));
+			size_t t = static_cast<size_t>(clamp<rtt2_float>(tx, 0.0, cur_buf.w - 1));
 			tx -= fx;
 			fx -= 0.5;
 			for (size_t cx = static_cast<size_t>(std::max(fx + 0.5, 0.0)); cx <= t; ++cx) {
 #ifdef DEBUG
 				rtt2_float y = fy + k * clamp(cx - fx, 0.0, tx);
-				if (y < 0.0 || y > cur_buf->get_h()) {
+				if (y < 0.0 || y > cur_buf.h) {
 					throw std::range_error("vertical clipping incorrect");
 				}
 #endif
@@ -66,13 +66,13 @@ namespace rtt2 {
 			}
 		}
 		void draw_line_up(rtt2_float by, rtt2_float bx, rtt2_float ty, rtt2_float invk, const device_color &c) { // handles vertical clipping
-			size_t t = static_cast<size_t>(clamp<rtt2_float>(ty, 0.0, cur_buf->get_h() - 1));
+			size_t t = static_cast<size_t>(clamp<rtt2_float>(ty, 0.0, cur_buf.h - 1));
 			ty -= by;
 			by -= 0.5;
 			for (size_t cy = static_cast<size_t>(std::max(by + 0.5, 0.0)); cy <= t; ++cy) {
 #ifdef DEBUG
 				rtt2_float x = bx + invk * clamp(cy - by, 0.0, ty);
-				if (x < 0.0 || x > cur_buf->get_w()) {
+				if (x < 0.0 || x > cur_buf.w) {
 					throw std::range_error("horizontal clipping incorrect");
 				}
 #endif
@@ -91,11 +91,11 @@ namespace rtt2 {
 			}
 			vec2 diff(pt - pf);
 			if (diff.x < 0.0 ? true : (diff.y < 0.0 ? false : (std::fabs(diff.y) > std::fabs(diff.x)))) { // messy
-				if (clip_line_onedir(pf.x, pf.y, pt.x, pt.y, 0.5, cur_buf->get_w() - 0.5)) {
+				if (clip_line_onedir(pf.x, pf.y, pt.x, pt.y, 0.5, cur_buf.w - 0.5)) {
 					draw_line_up(pf.y, pf.x, pt.y, diff.x / diff.y, c);
 				}
 			} else {
-				if (clip_line_onedir(pf.y, pf.x, pt.y, pt.x, 0.5, cur_buf->get_h() - 0.5)) {
+				if (clip_line_onedir(pf.y, pf.x, pt.y, pt.x, 0.5, cur_buf.h - 0.5)) {
 					draw_line_right(pf.x, pf.y, pt.x, diff.y / diff.x, c);
 				}
 			}
@@ -126,23 +126,20 @@ namespace rtt2 {
 				const vertex_pos_cache &cac,
 				const vertex_normal_cache &norm,
 				const vec2 &uvv,
-				const color_vec &cc,
-				size_t id
-			) : pos(&cac), normal(&norm), uv(&uvv), c(&cc), oid(id) {
+				const color_vec &cc
+			) : pos(&cac), normal(&norm), uv(&uvv), c(&cc) {
 			}
 			vertex_info(
 				const vertex_cache &cac,
 				const vec2 &u,
-				const color_vec &clr,
-				size_t id
-			) : pos(&cac.pos), normal(&cac.normal), uv(&u), c(&clr), oid(id) {
+				const color_vec &clr
+			) : pos(&cac.pos), normal(&cac.normal), uv(&u), c(&clr) {
 			}
 
 			const vertex_pos_cache *pos;
 			const vertex_normal_cache *normal;
 			const vec2 *uv;
 			const color_vec *c;
-			size_t oid;
 		};
 	public:
 		struct frag_info {
@@ -187,8 +184,8 @@ namespace rtt2 {
 		};
 
 		typedef void(*vertex_shader)(const rasterizer&, const mat4&, const vec3&, const vec3&, vec3&, vec3&, void*);
-		typedef bool(*test_shader)(const rasterizer&, const frag_info&, rtt2_float&, unsigned char&, void*);
-		typedef void(*fragment_shader)(const rasterizer&, const frag_info&, const texture*, device_color&, void*);
+		typedef bool(*test_shader)(const rasterizer&, const frag_info&, rtt2_float*, unsigned char*, void*);
+		typedef void(*fragment_shader)(const rasterizer&, const frag_info&, const texture*, device_color*, void*);
 
 		inline static void default_vertex_shader(const rasterizer&, const mat4 &mat, const vec3 &pos, const vec3 &n, vec3 &resr, vec3 &resn, void*) {
 			transform_default(mat, pos, resr);
@@ -197,27 +194,27 @@ namespace rtt2 {
 		inline static bool default_test_shader(
 			const rasterizer&,
 			const frag_info &fi,
-			rtt2_float &zres,
-			unsigned char&,
+			rtt2_float *zres,
+			unsigned char*,
 			void*
 		) {
-			if (fi.z_cache > zres) {
-				zres = fi.z_cache;
+			if (fi.z_cache > *zres) {
+				*zres = fi.z_cache;
 				return true;
 			}
 			return false;
 		}
-		inline static void default_fragment_shader_withtex(const rasterizer&, const frag_info &info, const texture *tex, device_color &res, void*) {
+		inline static void default_fragment_shader_withtex(const rasterizer&, const frag_info &info, const texture *tex, device_color *res, void*) {
 			color_vec tv;
 			tex->sample(info.get_uv(), tv, uv_clamp_mode::repeat_border, sample_mode::bilinear);
 			color_vec_mult(tv, info.get_color_mult(), tv);
 			clamp_vec(tv, 0.0, 1.0);
-			res.from_vec4(tv);
+			res->from_vec4(tv);
 		}
-		inline static void default_fragment_shader_notex(const rasterizer&, const frag_info &info, const texture*, device_color &res, void*) {
+		inline static void default_fragment_shader_notex(const rasterizer&, const frag_info &info, const texture*, device_color *res, void*) {
 			color_vec tv = info.get_color_mult();
 			clamp_vec(tv, 0.0, 1.0);
-			res.from_vec4(tv);
+			res->from_vec4(tv);
 		}
 
 		void fix_proj_tex_mapping(const fix_proj_params &params, rtt2_float x, rtt2_float y, rtt2_float &p, rtt2_float &q) const {
@@ -254,13 +251,13 @@ namespace rtt2 {
 			sy -= 0.5;
 			size_t
 				miny = static_cast<size_t>(std::max(ymin + 0.5, 0.0)),
-				maxy = static_cast<size_t>(clamp<rtt2_float>(ymax + 0.5, 0.0, cur_buf->get_h()));
-			rtt2_float xstep = 2.0 / cur_buf->get_w(), ystep = 2.0 / cur_buf->get_h(), ys = (miny + 0.5) * ystep - 1.0;
+				maxy = static_cast<size_t>(clamp<rtt2_float>(ymax + 0.5, 0.0, cur_buf.h));
+			rtt2_float xstep = 2.0 / cur_buf.w, ystep = 2.0 / cur_buf.h, ys = (miny + 0.5) * ystep - 1.0;
 			for (size_t y = miny; y < maxy; ++y, ys += ystep) {
 				rtt2_float diff = y - sy, left = diff * invk1 + sx, right = diff * invk2 + sx;
 				size_t
 					l = static_cast<size_t>(std::max(left, 0.0)),
-					r = static_cast<size_t>(clamp<rtt2_float>(right, 0.0, cur_buf->get_w()));
+					r = static_cast<size_t>(clamp<rtt2_float>(right, 0.0, cur_buf.w));
 				rtt2_float xs = (l + 0.5) * xstep - 1.0;
 				fragment_data frag;
 				get_fragment_data_at(l, y, frag);
@@ -270,8 +267,8 @@ namespace rtt2 {
 					fi.r = 1.0 - fi.p - fi.q;
 					fi.v = v;
 					fi.make_cache();
-					if (shader_test(*this, fi, *frag.z, *frag.stencil, tag)) {
-						shader_frag(*this, fi, tex, *frag.color, tag);
+					if (shader_test(*this, fi, frag.z, frag.stencil, tag)) {
+						shader_frag(*this, fi, tex, frag.color, tag);
 					}
 				}
 			}
@@ -280,18 +277,18 @@ namespace rtt2 {
 #ifdef RTT2_FORCE_DOTCLOUD
 			device_color c;
 			c.from_vec4(*v[0].c);
-			if (p1.x > 0.0 && p1.x < cur_buf->get_w() && p1.y > 0.0 && p1.y < cur_buf->get_h()) {
+			if (p1.x > 0.0 && p1.x < cur_buf.w && p1.y > 0.0 && p1.y < cur_buf.h) {
 				set_pixel(p1.x, p1.y, c);
 			}
-			if (p2.x > 0.0 && p2.x < cur_buf->get_w() && p2.y > 0.0 && p2.y < cur_buf->get_h()) {
+			if (p2.x > 0.0 && p2.x < cur_buf.w && p2.y > 0.0 && p2.y < cur_buf.h) {
 				set_pixel(p2.x, p2.y, c);
 			}
-			if (p3.x > 0.0 && p3.x < cur_buf->get_w() && p3.y > 0.0 && p3.y < cur_buf->get_h()) {
+			if (p3.x > 0.0 && p3.x < cur_buf.w && p3.y > 0.0 && p3.y < cur_buf.h) {
 				set_pixel(p3.x, p3.y, c);
 			}
 #else
 #	ifdef RTT2_FORCE_WIREFRAME
-			if (cur_buf->get_type() != buffer_set_type::nograph) {
+			if (cur_buf.color_arr) {
 				device_color c;
 				c.from_vec4(*v[0].c);
 				draw_line(p1, p2, c);
@@ -333,29 +330,30 @@ namespace rtt2 {
 			const texture *tex, void *tag
 		) {
 			vertex_info v[3]{
-				{ v1, n1, uv1, c1, 0 },
-				{ v2, n2, uv2, c2, 1 },
-				{ v3, n3, uv3, c3, 2 }
+				{ v1, n1, uv1, c1 },
+				{ v2, n2, uv2, c2 },
+				{ v3, n3, uv3, c3 }
 			};
-			RTT2_SORT3(v, .pos->cam_pos.z, < );
+			vertex_info *pv[3]{ &v[0], &v[1], &v[2] };
+			RTT2_SORT3(pv, ->pos->cam_pos.z, < );
 			vec2 t1, t2;
-			if (v[2].pos->cam_pos.z > 0.0) {
+			if (pv[2]->pos->cam_pos.z > 0.0) {
 				return;
-			} else if (v[1].pos->cam_pos.z > 0.0) {
-				clip_against_xy(v[2].pos->cam_pos, v[0].pos->cam_pos, t1);
-				clip_against_xy(v[2].pos->cam_pos, v[1].pos->cam_pos, t2);
-				cur_buf->denormalize_scr_coord(t1);
-				cur_buf->denormalize_scr_coord(t2);
-				draw_triangle_impl(v, t1, t2, v[2].pos->screen_pos, tex, tag);
-			} else if (v[0].pos->cam_pos.z > 0.0) {
-				clip_against_xy(v[1].pos->cam_pos, v[0].pos->cam_pos, t1);
-				clip_against_xy(v[2].pos->cam_pos, v[0].pos->cam_pos, t2);
-				cur_buf->denormalize_scr_coord(t1);
-				cur_buf->denormalize_scr_coord(t2);
-				draw_triangle_impl(v, v[1].pos->screen_pos, v[2].pos->screen_pos, t1, tex, tag);
-				draw_triangle_impl(v, t1, t2, v[2].pos->screen_pos, tex, tag);
+			} else if (pv[1]->pos->cam_pos.z > 0.0) {
+				clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, t1);
+				clip_against_xy(pv[2]->pos->cam_pos, pv[1]->pos->cam_pos, t2);
+				cur_buf.denormalize_scr_coord(t1);
+				cur_buf.denormalize_scr_coord(t2);
+				draw_triangle_impl(v, t1, t2, pv[2]->pos->screen_pos, tex, tag);
+			} else if (pv[0]->pos->cam_pos.z > 0.0) {
+				clip_against_xy(pv[1]->pos->cam_pos, pv[0]->pos->cam_pos, t1);
+				clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, t2);
+				cur_buf.denormalize_scr_coord(t1);
+				cur_buf.denormalize_scr_coord(t2);
+				draw_triangle_impl(v, pv[1]->pos->screen_pos, pv[2]->pos->screen_pos, t1, tex, tag);
+				draw_triangle_impl(v, t1, t2, pv[2]->pos->screen_pos, tex, tag);
 			} else {
-				draw_triangle_impl(v, v[0].pos->screen_pos, v[1].pos->screen_pos, v[2].pos->screen_pos, tex, tag);
+				draw_triangle_impl(v, pv[0]->pos->screen_pos, pv[1]->pos->screen_pos, pv[2]->pos->screen_pos, tex, tag);
 			}
 		}
 		void draw_cached_triangle(
@@ -384,9 +382,9 @@ namespace rtt2 {
 			if (vec3::dot(vc[0].pos.shaded_pos, vec3::cross(vc[1].pos.shaded_pos, vc[2].pos.shaded_pos)) > 0.0) {
 				return;
 			}
-			vc[0].pos.complete(*cur_buf, *mat_proj);
-			vc[1].pos.complete(*cur_buf, *mat_proj);
-			vc[2].pos.complete(*cur_buf, *mat_proj);
+			vc[0].pos.complete(cur_buf, *mat_proj);
+			vc[1].pos.complete(cur_buf, *mat_proj);
+			vc[2].pos.complete(cur_buf, *mat_proj);
 			draw_cached_triangle_no_backface_culling(
 				vc[0].pos, vc[1].pos, vc[2].pos, vc[0].normal, vc[1].normal, vc[2].normal,
 				uv1, uv2, uv3, c1, c2, c3, tex, tag
@@ -416,13 +414,13 @@ namespace rtt2 {
 			}
 		};
 		device_color *get_color_buf_at(size_t x, size_t y) const {
-			return cur_buf->get_color_arr() + (cur_buf->get_w() * y + x);
+			return cur_buf.color_arr + (cur_buf.w * y + x);
 		}
 		void get_fragment_data_at(size_t x, size_t y, fragment_data &data) const {
-			size_t id = cur_buf->get_w() * y + x;
-			data.color = cur_buf->get_color_arr() + id;
-			data.z = cur_buf->get_depth_arr() + id;
-			data.stencil = cur_buf->get_stencil_arr() + id;
+			size_t id = cur_buf.w * y + x;
+			data.color = cur_buf.color_arr + id;
+			data.z = cur_buf.depth_arr + id;
+			data.stencil = cur_buf.stencil_arr + id;
 		}
 	};
 }

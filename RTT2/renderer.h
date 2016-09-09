@@ -11,14 +11,14 @@ namespace rtt2 {
 	struct scene_cache {
 		std::vector<model_cache> of_models;
 		std::vector<light_cache> of_lights;
-		mat4 camview, perspective;
+		mat4 camview, projection;
 	};
 	class basic_renderer {
 	public:
 		rasterizer *linked_rasterizer;
 		std::vector<model> models;
 		std::vector<light> lights;
-		camera_spec *cam;
+		mat4 *mat_modelview, *mat_projection;
 
 		scene_cache *cache;
 
@@ -30,15 +30,15 @@ namespace rtt2 {
 			transform_default(mat, pos, rpos);
 			transform_default(mat, normal, rnormal, 0.0);
 		}
-		inline static bool renderer_shadow_test_shader(const rasterizer&, const rasterizer::frag_info &info, rtt2_float &z, unsigned char&, void*) {
-			if (info.z_cache > z) {
-				z = info.z_cache;
+		inline static bool renderer_shadow_test_shader(const rasterizer&, const rasterizer::frag_info &info, rtt2_float *z, unsigned char*, void*) {
+			if (info.z_cache > *z) {
+				*z = info.z_cache;
 			}
 			return false;
 		}
-		inline static bool renderer_test_shader(const rasterizer&, const rasterizer::frag_info &info, rtt2_float &z, unsigned char&, void*) {
-			if (info.z_cache > z) {
-				z = info.z_cache;
+		inline static bool renderer_test_shader(const rasterizer&, const rasterizer::frag_info &info, rtt2_float *z, unsigned char*, void*) {
+			if (info.z_cache > *z) {
+				*z = info.z_cache;
 				return true;
 			}
 			return false;
@@ -56,32 +56,34 @@ namespace rtt2 {
 				color_vec_rgb col, cr;
 				const light &curl = info.r->lights[i];
 				if (curl.data->get_illum(info.r->cache->of_lights[i], pos3, in, col)) {
-					if (curl.shadow.buff) {
-						const model_cache &cac = curl.shadow.scene->of_models[info.modid];
-						vec4 cp =
-							frag.p * cac.pos_cache[info.face->vertex_ids[frag.v[0].oid]].cam_pos +
-							frag.q * cac.pos_cache[info.face->vertex_ids[frag.v[1].oid]].cam_pos +
-							frag.r * cac.pos_cache[info.face->vertex_ids[frag.v[2].oid]].cam_pos;
+				/*	if (curl.has_shadow) {
+						vec4 cp = curl.shadow_cache.of_spotlight.mat_tot * vec4(pos3);
 						vec2 xy;
 						cp.homogenize_2(xy);
-						curl.shadow.buff->denormalize_scr_coord(xy);
-						size_t 
-							x = static_cast<size_t>(clamp(xy.x, 0.5, curl.shadow.buff->get_w() - 0.5)),
-							y = static_cast<size_t>(clamp(xy.y, 0.5, curl.shadow.buff->get_h() - 0.5));
-						rtt2_float *z = curl.shadow.buff->get_at(x, y, curl.shadow.buff->get_depth_arr());
-						if (cp.z / cp.w < *z - curl.shadow.tolerance) {
+						curl.shadow_cache.of_spotlight.buff.denormalize_scr_coord(xy);
+						size_t
+							x = static_cast<size_t>(clamp(xy.x, 0.5, curl.shadow_cache.of_spotlight.buff.w - 0.5)),
+							y = static_cast<size_t>(clamp(xy.y, 0.5, curl.shadow_cache.of_spotlight.buff.h - 0.5));
+						rtt2_float *z = curl.shadow_cache.of_spotlight.buff.get_at(x, y, curl.shadow_cache.of_spotlight.buff.depth_arr);
+						if (cp.z / cp.w < *z - curl.shadow_cache.of_spotlight.tolerance) {
 							continue;
 						}
 					}
 					info.r->models[info.modid].mtrl->get_illum(in, npos3, norm, col, cr);
 					max_vec(cr, 0.0);
-					res += cr;
+					res += cr;*/
+
+					if (!curl.in_shadow(pos3)) {
+						info.r->models[info.modid].mtrl->get_illum(in, npos3, norm, col, cr);
+						max_vec(cr, 0.0);
+						res += cr;
+					}
 				}
 			}
 		}
 		inline static void renderer_fragment_shader_withtex(
 			const rasterizer&, const rasterizer::frag_info &frag, const texture *tex,
-			device_color &cres, void *pinfo
+			device_color *cres, void *pinfo
 		) {
 			additional_frag_info *info = static_cast<additional_frag_info*>(pinfo);
 			color_vec_rgb res(0.0, 0.0, 0.0);
@@ -91,11 +93,11 @@ namespace rtt2 {
 			color_vec_mult(c1, vec4(res, 1.0), c2);
 			color_vec_mult(c2, frag.get_color_mult(), c1);
 			clamp_vec(c1, 0.0, 1.0);
-			cres.from_vec4(c1);
+			cres->from_vec4(c1);
 		}
 		inline static void renderer_fragment_shader_notex(
 			const rasterizer&, const rasterizer::frag_info &frag, const texture*,
-			device_color &cres, void *pinfo
+			device_color *cres, void *pinfo
 		) {
 			additional_frag_info *info = static_cast<additional_frag_info*>(pinfo);
 			color_vec_rgb res(0.0, 0.0, 0.0);
@@ -103,19 +105,18 @@ namespace rtt2 {
 			color_vec fres;
 			color_vec_mult(vec4(res, 1.0), frag.get_color_mult(), fres);
 			clamp_vec(fres, 0.0, 1.0);
-			cres.from_vec4(fres);
+			cres->from_vec4(fres);
 		}
-
 	public:
 		void setup_rendering_env() const {
 			linked_rasterizer->mat_modelview = &cache->camview;
-			linked_rasterizer->mat_proj = &cache->perspective;
+			linked_rasterizer->mat_proj = &cache->projection;
 			linked_rasterizer->shader_vtx = renderer_vertex_shader;
 			linked_rasterizer->shader_test = renderer_test_shader;
 		}
 		void setup_rendering_shadow_env() const {
 			linked_rasterizer->mat_modelview = &cache->camview;
-			linked_rasterizer->mat_proj = &cache->perspective;
+			linked_rasterizer->mat_proj = &cache->projection;
 			linked_rasterizer->shader_vtx = renderer_vertex_shader;
 			linked_rasterizer->shader_test = renderer_shadow_test_shader;
 		}
@@ -160,15 +161,15 @@ namespace rtt2 {
 			mat4::mult_ref(cache->camview, *m.trans, tg.mat_cache);
 			for (size_t i = 0; i != m.data->points.size(); ++i) {
 				transform_default(tg.mat_cache, m.data->points[i], tg.pos_cache[i].shaded_pos);
-				tg.pos_cache[i].complete(*linked_rasterizer->cur_buf, cache->perspective);
+				tg.pos_cache[i].complete(linked_rasterizer->cur_buf, cache->projection);
 			}
 			for (size_t i = 0; i != m.data->normals.size(); ++i) {
 				transform_default(tg.mat_cache, m.data->normals[i], tg.normal_cache[i].shaded_normal, 0.0);
 			}
 		}
 
-		void refresh_cache_of_light(const light_data &t, light_cache &c) const {
-			t.build_cache(cache->camview, c);
+		void refresh_cache_of_light(const light &t, light_cache &c) const {
+			t.data->build_cache(cache->camview, c);
 		}
 
 		void init_cache(scene_cache &sc) const {
@@ -182,13 +183,13 @@ namespace rtt2 {
 			init_cache(*cache);
 		}
 		void refresh_cache(scene_cache &sc) const {
-			get_trans_camview_3(*cam, sc.camview);
-			get_trans_frustrum_3(*cam, sc.perspective);
+			sc.camview = *mat_modelview;
+			sc.projection = *mat_projection;
 			for (size_t i = 0; i < models.size(); ++i) {
 				refresh_cache_of_model(models[i], sc.of_models[i]);
 			}
 			for (size_t i = 0; i < lights.size(); ++i) {
-				refresh_cache_of_light(*lights[i].data, sc.of_lights[i]);
+				refresh_cache_of_light(lights[i], sc.of_lights[i]);
 			}
 		}
 		void refresh_cache() {
@@ -196,4 +197,28 @@ namespace rtt2 {
 		}
 #pragma endregion
 	};
+	inline void spotlight::build_shadow_cache(basic_renderer &rend, const buffer_set &bs, const shadow_settings &settings, light::shadow_data &sd) const {
+		mat4 mdlv, proj;
+		vec3 up, right;
+		rasterizer rast;
+		scene_cache cache;
+		dir.get_max_prp(up);
+		up.set_length(1.0);
+		vec3::cross_ref(dir, up, right);
+		get_trans_camview_3(pos, dir, up, right, mdlv);
+		get_trans_frustrum_3(2.0 * outer_angle, 1.0, settings.of_spotlight.znear, settings.of_spotlight.zfar, proj);
+		rast.cur_buf = bs;
+		rast.clear_depth_buf(-1.0);
+		rend.linked_rasterizer = &rast;
+		rend.cache = &cache;
+		rend.mat_modelview = &mdlv;
+		rend.mat_projection = &proj;
+		rend.init_cache();
+		rend.refresh_cache();
+		rend.setup_rendering_shadow_env();
+		rend.render_cached();
+		mat4::mult_ref(proj, mdlv, sd.of_spotlight.mat_w2sm);
+		sd.of_spotlight.buff = bs;
+		sd.of_spotlight.tolerance = settings.of_spotlight.tolerance;
+	}
 }

@@ -255,9 +255,9 @@ namespace rtt2 {
 			from_buffer_nocheck(buf);
 		}
 		void from_buffer_nocheck(const buffer_set &buf) {
-			_w = buf.get_w();
-			_h = buf.get_h();
-			_arr = buf.get_color_arr();
+			_w = buf.w;
+			_h = buf.h;
+			_arr = buf.color_arr;
 			_own = false;
 		}
 	protected:
