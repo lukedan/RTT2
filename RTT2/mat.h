@@ -334,6 +334,12 @@ namespace rtt2 {
 		std::memcpy(mat[3], &c4, sizeof(vec4));
 	}
 
+	inline void solve_linear_2(const vec2 &v1, const vec2 &v2, const vec2 &vr, rtt2_float &p, rtt2_float &q) {
+		rtt2_float div = 1.0 / (v1.x * v2.y - v2.x * v1.y);
+		p = (v2.y * vr.x - v2.x * vr.y) * div;
+		q = (v1.x * vr.y - v1.y * vr.x) * div;
+	}
+
 	inline void get_trans_pts_to_pts_2(
 		const vec2 &pf1, const vec2 &pf2, const vec2 &pf3,
 		const vec2 &pt1, const vec2 &pt2, const vec2 &pt3,

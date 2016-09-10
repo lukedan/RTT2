@@ -28,6 +28,9 @@ namespace rtt2 {
 			free_mem();
 		}
 
+		uv_clamp_mode mode_uv = uv_clamp_mode::repeat;
+		sample_mode mode_sample = sample_mode::bilinear;
+
 		size_t get_w() const {
 			return _w;
 		}
@@ -91,11 +94,41 @@ namespace rtt2 {
 					break;
 			}
 		}
+		void grad_x(const vec2 &uv, color_vec &res, uv_clamp_mode clampm) const {
+			int x = static_cast<int>(std::floor(uv.x * _w)), y = static_cast<int>(std::floor(uv.y * _h)), x1 = x + 1;
+			--x;
+			clamp_coords(x, _w, clampm);
+			clamp_coords(x1, _w, clampm);
+			clamp_coords(y, _h, clampm);
+			color_vec t;
+			fetch(static_cast<size_t>(x), static_cast<size_t>(y), t);
+			fetch(static_cast<size_t>(x1), static_cast<size_t>(y), res);
+			res -= t;
+			res *= 0.5;
+		}
+		void grad_x(const vec2 &uv, color_vec &res) const {
+			grad_x(uv, res, mode_uv);
+		}
+		void grad_y(const vec2 &uv, color_vec &res, uv_clamp_mode clampm) const {
+			int x = static_cast<int>(std::floor(uv.x * _w)), y = static_cast<int>(std::floor(uv.y * _h)), y1 = y + 1;
+			--y;
+			clamp_coords(x, _w, clampm);
+			clamp_coords(y, _h, clampm);
+			clamp_coords(y1, _h, clampm);
+			color_vec t;
+			fetch(static_cast<size_t>(x), static_cast<size_t>(y), t);
+			fetch(static_cast<size_t>(x), static_cast<size_t>(y1), res);
+			res -= t;
+			res *= 0.5;
+		}
+		void grad_y(const vec2 &uv, color_vec &res) const {
+			grad_y(uv, res, mode_uv);
+		}
 		void sample(const vec2 &uv, color_vec &res, uv_clamp_mode clampm, sample_mode sampm) const {
 			switch (sampm) {
 				case sample_mode::nearest:
 				{
-					int x = static_cast<int>(uv.x * _w), y = static_cast<int>(uv.y * _h);
+					int x = static_cast<int>(std::floor(uv.x * _w)), y = static_cast<int>(std::floor(uv.y * _h));
 					clamp_coords(x, _w, clampm);
 					clamp_coords(y, _h, clampm);
 					fetch(static_cast<size_t>(x), static_cast<size_t>(y), res);
@@ -104,7 +137,7 @@ namespace rtt2 {
 				case sample_mode::bilinear:
 				{
 					rtt2_float xf = uv.x * _w - 0.5, yf = uv.y * _h - 0.5;
-					int x = static_cast<int>(xf), y = static_cast<int>(yf), x1 = x + 1, y1 = y + 1;
+					int x = static_cast<int>(std::floor(xf)), y = static_cast<int>(std::floor(yf)), x1 = x + 1, y1 = y + 1;
 					xf -= x;
 					yf -= y;
 					clamp_coords(x, _w, clampm);
@@ -120,6 +153,9 @@ namespace rtt2 {
 					break;
 				}
 			}
+		}
+		void sample(const vec2 &uv, color_vec &res) const {
+			sample(uv, res, mode_uv, mode_sample);
 		}
 
 		void reset(size_t w, size_t h) {
@@ -219,10 +255,10 @@ namespace rtt2 {
 					for (size_t y = 0; y < _h; ++y) {
 						device_color *cur = get_at(0, _h - y - 1);
 						for (size_t x = 0; x < _w; ++x, ++cur) {
-							char
-								r = static_cast<char>(fin.get_char()),
-								g = static_cast<char>(fin.get_char()),
-								b = static_cast<char>(fin.get_char());
+							unsigned char
+								r = static_cast<unsigned char>(fin.get_char()),
+								g = static_cast<unsigned char>(fin.get_char()),
+								b = static_cast<unsigned char>(fin.get_char());
 							cur->set(
 								255,
 								static_cast<unsigned char>(255 * (r / static_cast<rtt2_float>(maxv))),
@@ -250,14 +286,14 @@ namespace rtt2 {
 			}
 		}
 
-		void from_buffer(const buffer_set &buf) {
+		template <typename T> void from_buffer(const T &buf) {
 			reset();
 			from_buffer_nocheck(buf);
 		}
-		void from_buffer_nocheck(const buffer_set &buf) {
-			_w = buf.w;
-			_h = buf.h;
-			_arr = buf.color_arr;
+		template <typename T> void from_buffer_nocheck(const T &buf) {
+			_w = buf.get_w();
+			_h = buf.get_h();
+			_arr = buf.get_arr();
 			_own = false;
 		}
 	protected:

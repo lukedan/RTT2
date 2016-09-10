@@ -120,6 +120,7 @@
     <ClInclude Include="brdf.h" />
     <ClInclude Include="buffer.h" />
     <ClInclude Include="color.h" />
+    <ClInclude Include="enhancement.h" />
     <ClInclude Include="light.h" />
     <ClInclude Include="mat.h" />
     <ClInclude Include="model.h" />

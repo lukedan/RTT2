@@ -38,6 +38,14 @@ namespace rtt2 {
 		device_color *get_arr() const {
 			return _arr;
 		}
+		device_color *get_at(size_t x, size_t y) const {
+#ifdef DEBUG
+			if (x >= _w || y >= _h) {
+				throw std::range_error("invalid coords");
+			}
+#endif
+			return _arr + (_w * y + x);
+		}
 
 		void display(HDC hdc) const {
 			BitBlt(hdc, 0, 0, _w, _h, _dc, 0, 0, SRCCOPY);
@@ -72,6 +80,11 @@ namespace rtt2 {
 		}
 
 		T *get_at(size_t x, size_t y) const {
+#ifdef DEBUG
+			if (x >= _w || y >= _h) {
+				throw std::range_error("invalid coords");
+			}
+#endif
 			return _arr + (_w * y + x);
 		}
 	protected:
@@ -98,6 +111,11 @@ namespace rtt2 {
 		}
 
 		template <typename T> T *get_at(size_t x, size_t y, T *arr) const {
+#ifdef DEBUG
+			if (x >= w || y >= h) {
+				throw std::range_error("invalid coords");
+			}
+#endif
 			return arr + (w * y + x);
 		}
 
@@ -116,4 +134,15 @@ namespace rtt2 {
 			normalize_scr_coord(x, y, r.x, r.y);
 		}
 	};
+
+	template <typename U, typename V> void enlarged_copy(const U &src, V &dst) {
+		rtt2_float
+			xenl = src.get_w() / static_cast<rtt2_float>(dst.get_w()),
+			yenl = src.get_h() / static_cast<rtt2_float>(dst.get_h());
+		for (size_t y = 0; y < dst.get_h(); ++y) {
+			for (size_t x = 0; x < dst.get_w(); ++x) {
+				*dst.get_at(x, y) = *src.get_at(static_cast<size_t>((x + 0.5) * xenl), static_cast<size_t>((y + 0.5) * yenl));
+			}
+		}
+	}
 }

@@ -181,6 +181,7 @@ namespace rtt2 {
 			}
 		}
 	};
+	class enhancement;
 	struct model {
 		model() = default;
 		model(
@@ -188,14 +189,16 @@ namespace rtt2 {
 			const material *m,
 			const mat4 *t,
 			const texture *te,
-			const color_vec &c
-		) : data(d), mtrl(m), trans(t), tex(te), color(c) {
+			const enhancement *enh,
+		const color_vec &c
+		) : data(d), mtrl(m), trans(t), tex(te), enhance(enh), color(c) {
 		}
 
 		const model_data *data;
 		const material *mtrl;
 		const mat4 *trans;
 		const texture *tex;
+		const enhancement *enhance;
 		color_vec color;
 	};
 }

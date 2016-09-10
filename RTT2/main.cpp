@@ -9,13 +9,21 @@
 #include "buffer.h"
 #include "model.h"
 #include "renderer.h"
+#include "enhancement.h"
 
 using namespace rtt2;
 
-#define WND_WIDTH 1024
-#define WND_HEIGHT 768
+#define WND_WIDTH 1200
+#define WND_HEIGHT 900
+
+#define BUF_WIDTH 300
+#define BUF_HEIGHT 225
 
 #define SHADOW_BUFFER_SIZE 5000
+
+#define USE_SHADOW_MAP
+#define USE_MODEL
+#define MODEL_FILE "rsrc/buddha.obj"
 
 //#define TEAPOT
 
@@ -64,8 +72,9 @@ LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 }
 
 int main() {
-	sys_color_buffer scb(wnd.get_dc(), WND_WIDTH, WND_HEIGHT);
-	mem_depth_buffer mdb(WND_WIDTH, WND_HEIGHT);
+	sys_color_buffer finalbuf(wnd.get_dc(), WND_WIDTH, WND_HEIGHT);
+	mem_color_buffer screen_buf(BUF_WIDTH, BUF_HEIGHT);
+	mem_depth_buffer mdb(BUF_WIDTH, BUF_HEIGHT);
 	rasterizer rast;
 	fps_counter counter;
 	stopwatch stw;
@@ -75,10 +84,11 @@ int main() {
 	scene_cache defsc;
 	buffer_set defbsc;
 
-	texture tex;
+	texture tex, dep;
 	model_data mdl1, mdl2;
 	mat4 mm1, mm2;
 	material_phong mtrl(1.0, 1.0, 50.0);
+	parallax_occulusion_mapping_enhancement test_po;
 
 	//directional_light l1;
 	spotlight l2, l3;
@@ -86,21 +96,16 @@ int main() {
 	mem_depth_buffer s2ds(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE), s3ds(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE);
 	buffer_set s2bs, s3bs;
 
-	defbsc.set(WND_WIDTH, WND_HEIGHT, scb.get_arr(), mdb.get_arr(), nullptr);
+	bool spc = false;
+
+	defbsc.set(BUF_WIDTH, BUF_HEIGHT, screen_buf.get_arr(), mdb.get_arr(), nullptr);
 
 	rast.cur_buf = defbsc;
-	rast.shader_vtx = rasterizer::default_vertex_shader;
-	rast.shader_test = rasterizer::default_test_shader;
-	rast.shader_frag = rasterizer::default_fragment_shader_notex;
 
 	counter.set_window(0.5);
 
-	wnd.set_client_size(WND_WIDTH, WND_HEIGHT);
-	wnd.set_center();
-	wnd.show();
-
 	cam.hori_fov = 60.0 * RTT2_PI / 180.0;
-	cam.aspect_ratio = WND_HEIGHT / static_cast<rtt2_float>(WND_WIDTH);
+	cam.aspect_ratio = BUF_HEIGHT / static_cast<rtt2_float>(BUF_WIDTH);
 	cam.znear = ZNEAR;
 	cam.zfar = ZFAR;
 	cam.pos = vec3(INIT_CAM_X, 0.0, 0.0);
@@ -108,28 +113,41 @@ int main() {
 	cam.up = vec3(0.0, 0.0, 1.0);
 	cam.make_cache();
 
+	std::cout << "loading textures...\n";
 	{
-		file_access in("rsrc/tex.ppm", "r");
+		file_access in("rsrc/po_img.ppm", "r");
 		tex.load_ppm(in);
 	}
 	tex.make_float_cache_nocheck();
 
 	{
-		file_access in("rsrc/buddha.obj", "r");
+		file_access in("rsrc/po_depth.ppm", "r");
+		dep.load_ppm(in);
+	}
+	dep.make_float_cache_nocheck();
+
+#ifdef USE_MODEL
+	std::cout << "loading models...\n";
+	{
+		file_access in(MODEL_FILE, "r");
 		mdl1.load_obj(in);
 	}
 	if (mdl1.normals.size() == 1) {
 		mdl1.generate_normals_weighted_average();
 	}
+#endif
+
+	test_po.depth = 0.2;
+	test_po.depth_tex = &dep;
 
 	mdl2.points.push_back(vec3(-20.0, -20.0, 0.0));
 	mdl2.points.push_back(vec3(20.0, -20.0, 0.0));
 	mdl2.points.push_back(vec3(-20.0, 20.0, 0.0));
 	mdl2.points.push_back(vec3(20.0, 20.0, 0.0));
-	mdl2.uvs.push_back(vec2(-10.0, -10.0));
-	mdl2.uvs.push_back(vec2(10.0, -10.0));
-	mdl2.uvs.push_back(vec2(-10.0, 10.0));
-	mdl2.uvs.push_back(vec2(10.0, 10.0));
+	mdl2.uvs.push_back(vec2(5.0, 5.0));
+	mdl2.uvs.push_back(vec2(-5.0, 5.0));
+	mdl2.uvs.push_back(vec2(5.0, -5.0));
+	mdl2.uvs.push_back(vec2(-5.0, -5.0));
 	mdl2.normals.push_back(vec3(0.0, 0.0, 1.0));
 	model_data::face_info fi;
 	fi.uv_ids[0] = 0;
@@ -155,16 +173,17 @@ int main() {
 	l1.dir = vec3(-3.0, -4.0, -5.0);
 	l1.dir.set_length(1.0);*/
 
-	l2.color = color_vec_rgb(9000.0, 3000.0, 2000.0);
-	l2.pos = vec3(5.0, 60.0, 95.0);
-	l2.dir = vec3(-5.0, -60.0, -95.0);
+	std::cout << "setting up lights...\n";
+	l2.color = color_vec_rgb(9000.0, 6000.0, 5000.0);
+	l2.pos = vec3(5.0, 95.0, 60.0);
+	l2.dir = vec3(-5.0, -95.0, -60.0);
 	l2.dir.set_length(1.0);
 	l2.inner_angle = 0.06;
 	l2.outer_angle = 0.07;
 
-	l3.color = color_vec_rgb(2000.0, 3000.0, 9000.0);
-	l3.pos = vec3(35.0, -50.0, 95.0);
-	l3.dir = vec3(-35.0, 50.0, -95.0);
+	l3.color = color_vec_rgb(5000.0, 6000.0, 9000.0);
+	l3.pos = vec3(60.0, -5.0, 95.0);
+	l3.dir = vec3(-60.0, 5.0, -95.0);
 	l3.dir.set_length(1.0);
 	l3.inner_angle = 0.07;
 	l3.outer_angle = 0.08;
@@ -172,8 +191,10 @@ int main() {
 	rend.mat_modelview = &cammod;
 	rend.mat_projection = &camproj;
 	rend.linked_rasterizer = &rast;
-	rend.models.push_back(model(&mdl1, &mtrl, &mm1, nullptr, color_vec(1.0, 1.0, 1.0, 1.0)));
-	rend.models.push_back(model(&mdl2, &mtrl, &mm2, &tex, color_vec(1.0, 1.0, 1.0, 1.0)));
+#ifdef USE_MODEL
+	rend.models.push_back(model(&mdl1, &mtrl, &mm1, nullptr, nullptr, color_vec(1.0, 1.0, 1.0, 1.0)));
+#endif
+	rend.models.push_back(model(&mdl2, &mtrl, &mm2, &tex, &test_po, color_vec(1.0, 1.0, 1.0, 1.0)));
 	//rend.lights.push_back(light(l1));
 	rend.lights.push_back(light(l2));
 	rend.lights.push_back(light(l3));
@@ -184,6 +205,8 @@ int main() {
 	get_trans_camview_3(cam, cammod);
 	get_trans_frustrum_3(cam, camproj);
 
+#ifdef USE_SHADOW_MAP
+	std::cout << "generating shadow map...\n";
 	shadow_settings set;
 	set.of_spotlight.tolerance = 0.001;
 	set.of_spotlight.znear = 100.0;
@@ -192,6 +215,7 @@ int main() {
 	rend.lights[0].build_shadow_cache(rend, s2bs, set);
 	s3bs.set(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE, nullptr, s3ds.get_arr(), nullptr);
 	rend.lights[1].build_shadow_cache(rend, s3bs, set);
+#endif
 
 	rast.cur_buf = defbsc;
 	rend.linked_rasterizer = &rast;
@@ -199,6 +223,11 @@ int main() {
 	rend.mat_projection = &camproj;
 	rend.cache = &defsc;
 
+	wnd.set_client_size(WND_WIDTH, WND_HEIGHT);
+	wnd.set_center();
+	wnd.show();
+
+	std::cout << "done\n";
 	while (goon) {
 		rtt2_float delta = stw.tick_in_seconds();
 
@@ -206,6 +235,26 @@ int main() {
 		}
 		rast.clear_color_buf(device_color(255, 0, 0, 0));
 		rast.clear_depth_buf(-1.0);
+
+#ifdef USE_SHADOW_MAP
+		if (is_key_down(VK_SPACE)) {
+			if (!spc) {
+				for (auto i = rend.lights.begin(); i != rend.lights.end(); ++i) {
+					i->has_shadow = !i->has_shadow;
+				}
+				spc = true;
+			}
+		} else {
+			spc = false;
+		}
+#else
+		if (is_key_down(VK_F1)) {
+			test_po.depth -= 0.1 * delta;
+		}
+		if (is_key_down(VK_F2)) {
+			test_po.depth += 0.1 * delta;
+		}
+#endif
 
 		if (iscam) {
 			int x, y, cx, cy;
@@ -257,14 +306,13 @@ int main() {
 		rend.setup_rendering_env();
 		rend.render_cached();
 
-		// end of tests
-		scb.display(wnd.get_dc());
+		enlarged_copy(screen_buf, finalbuf);
+		finalbuf.display(wnd.get_dc());
 
 		counter.update();
 		std::stringstream ss;
 		ss << "rasterizer test | fps: " << counter.get_fps();
 		wnd.set_caption(ss.str());
 	}
-	//std::system("pause");
 	return 0;
 }

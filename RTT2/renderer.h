@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rasterizer.h"
+#include "enhancement.h"
 
 namespace rtt2 {
 	struct model_cache {
@@ -23,6 +24,11 @@ namespace rtt2 {
 		scene_cache *cache;
 
 	protected:
+		struct additional_shader_info {
+			const basic_renderer *r;
+			size_t modid;
+			const model_data::face_info *face;
+		};
 		inline static void renderer_vertex_shader(
 			const rasterizer&, const mat4 &mat, const vec3 &pos, const vec3 &normal,
 			vec3 &rpos, vec3 &rnormal, void*
@@ -30,50 +36,40 @@ namespace rtt2 {
 			transform_default(mat, pos, rpos);
 			transform_default(mat, normal, rnormal, 0.0);
 		}
-		inline static bool renderer_shadow_test_shader(const rasterizer&, const rasterizer::frag_info &info, rtt2_float *z, unsigned char*, void*) {
+		inline static bool renderer_shadow_test_shader(const rasterizer &r, rasterizer::frag_info &info, rtt2_float *z, unsigned char *st, void *tag) {
+			additional_shader_info *si = static_cast<additional_shader_info*>(tag);
+			if (si->r->models[si->modid].enhance) {
+				if (!si->r->models[si->modid].enhance->on_test_shader(r, info, z, st, tag)) {
+					return false;
+				}
+			}
 			if (info.z_cache > *z) {
 				*z = info.z_cache;
 			}
 			return false;
 		}
-		inline static bool renderer_test_shader(const rasterizer&, const rasterizer::frag_info &info, rtt2_float *z, unsigned char*, void*) {
+		inline static bool renderer_test_shader(const rasterizer &r, rasterizer::frag_info &info, rtt2_float *z, unsigned char *st, void *tag) {
+			additional_shader_info *si = static_cast<additional_shader_info*>(tag);
+			if (si->r->models[si->modid].enhance) {
+				if (!si->r->models[si->modid].enhance->on_test_shader(r, info, z, st, tag)) {
+					return false;
+				}
+			}
 			if (info.z_cache > *z) {
 				*z = info.z_cache;
 				return true;
 			}
 			return false;
 		}
-		struct additional_frag_info {
-			const basic_renderer *r;
-			size_t modid;
-			const model_data::face_info *face;
-		};
-		inline static void get_illum_of_frag(const rasterizer::frag_info &frag, const additional_frag_info &info, color_vec_rgb &res) {
-			vec3 pos3(frag.get_pos3()), npos3(-pos3), norm(frag.get_normal());
+		inline static void get_illum_of_frag(const rasterizer::frag_info &frag, const additional_shader_info &info, color_vec_rgb &res) {
+			vec3 npos3(-frag.pos3_cache), norm(frag.normal_cache);
 			npos3.set_length(1.0);
 			for (size_t i = 0; i < info.r->lights.size(); ++i) {
 				vec3 in;
 				color_vec_rgb col, cr;
 				const light &curl = info.r->lights[i];
-				if (curl.data->get_illum(info.r->cache->of_lights[i], pos3, in, col)) {
-				/*	if (curl.has_shadow) {
-						vec4 cp = curl.shadow_cache.of_spotlight.mat_tot * vec4(pos3);
-						vec2 xy;
-						cp.homogenize_2(xy);
-						curl.shadow_cache.of_spotlight.buff.denormalize_scr_coord(xy);
-						size_t
-							x = static_cast<size_t>(clamp(xy.x, 0.5, curl.shadow_cache.of_spotlight.buff.w - 0.5)),
-							y = static_cast<size_t>(clamp(xy.y, 0.5, curl.shadow_cache.of_spotlight.buff.h - 0.5));
-						rtt2_float *z = curl.shadow_cache.of_spotlight.buff.get_at(x, y, curl.shadow_cache.of_spotlight.buff.depth_arr);
-						if (cp.z / cp.w < *z - curl.shadow_cache.of_spotlight.tolerance) {
-							continue;
-						}
-					}
-					info.r->models[info.modid].mtrl->get_illum(in, npos3, norm, col, cr);
-					max_vec(cr, 0.0);
-					res += cr;*/
-
-					if (!curl.in_shadow(pos3)) {
+				if (curl.data->get_illum(info.r->cache->of_lights[i], frag.pos3_cache, in, col)) {
+					if (!curl.in_shadow(frag.pos3_cache)) {
 						info.r->models[info.modid].mtrl->get_illum(in, npos3, norm, col, cr);
 						max_vec(cr, 0.0);
 						res += cr;
@@ -85,13 +81,13 @@ namespace rtt2 {
 			const rasterizer&, const rasterizer::frag_info &frag, const texture *tex,
 			device_color *cres, void *pinfo
 		) {
-			additional_frag_info *info = static_cast<additional_frag_info*>(pinfo);
+			additional_shader_info *info = static_cast<additional_shader_info*>(pinfo);
 			color_vec_rgb res(0.0, 0.0, 0.0);
 			get_illum_of_frag(frag, *info, res);
 			color_vec c1, c2;
-			tex->sample(frag.get_uv(), c1, uv_clamp_mode::repeat, sample_mode::bilinear);
+			tex->sample(frag.uv_cache, c1);
 			color_vec_mult(c1, vec4(res, 1.0), c2);
-			color_vec_mult(c2, frag.get_color_mult(), c1);
+			color_vec_mult(c2, frag.color_mult_cache, c1);
 			clamp_vec(c1, 0.0, 1.0);
 			cres->from_vec4(c1);
 		}
@@ -99,13 +95,14 @@ namespace rtt2 {
 			const rasterizer&, const rasterizer::frag_info &frag, const texture*,
 			device_color *cres, void *pinfo
 		) {
-			additional_frag_info *info = static_cast<additional_frag_info*>(pinfo);
+			additional_shader_info *info = static_cast<additional_shader_info*>(pinfo);
 			color_vec_rgb res(0.0, 0.0, 0.0);
 			get_illum_of_frag(frag, *info, res);
 			color_vec fres;
-			color_vec_mult(vec4(res, 1.0), frag.get_color_mult(), fres);
+			color_vec_mult(vec4(res, 1.0), frag.color_mult_cache, fres);
 			clamp_vec(fres, 0.0, 1.0);
 			cres->from_vec4(fres);
+			//cres->from_vec4(frag.color_mult_cache);
 		}
 	public:
 		void setup_rendering_env() const {
@@ -121,7 +118,7 @@ namespace rtt2 {
 			linked_rasterizer->shader_test = renderer_shadow_test_shader;
 		}
 		void render_cached() const {
-			additional_frag_info fi;
+			additional_shader_info fi;
 			fi.r = this;
 			const model *mod = &models[0];
 			for (fi.modid = 0; fi.modid < models.size(); ++fi.modid, ++mod) {

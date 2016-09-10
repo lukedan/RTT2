@@ -146,33 +146,23 @@ namespace rtt2 {
 			rtt2_float p, q, r;
 			unsigned char stencil;
 			const vertex_info *v;
+			vec2 uv_cache;
+			vec3 pos3_cache, normal_cache;
 			vec4 pos4_cache;
 			rtt2_float z_cache;
+			color_vec color_mult_cache;
 
 #define RTT2_FRAG_INFO_INTERPOLATE(FIELD) (v[0].FIELD * p + v[1].FIELD * q + v[2].FIELD * r)
 #define RTT2_FRAG_INFO_INTERPOLATE_PTR(FIELD) (*v[0].FIELD * p + *v[1].FIELD * q + *v[2].FIELD * r)
 
 			void make_cache() {
+				uv_cache = RTT2_FRAG_INFO_INTERPOLATE_PTR(uv);
+				pos3_cache = RTT2_FRAG_INFO_INTERPOLATE(pos->shaded_pos);
+				normal_cache = RTT2_FRAG_INFO_INTERPOLATE(normal->shaded_normal);
+				normal_cache.set_length(1.0);
 				pos4_cache = RTT2_FRAG_INFO_INTERPOLATE(pos->cam_pos);
 				z_cache = pos4_cache.z / pos4_cache.w;
-			}
-
-			vec2 get_uv() const {
-				return RTT2_FRAG_INFO_INTERPOLATE_PTR(uv);
-			}
-			vec3 get_pos3() const {
-				return RTT2_FRAG_INFO_INTERPOLATE(pos->shaded_pos);
-			}
-			vec3 get_normal_not_normalized() const {
-				return RTT2_FRAG_INFO_INTERPOLATE(normal->shaded_normal);
-			}
-			vec3 get_normal() const {
-				vec3 res(get_normal_not_normalized());
-				res.set_length(1.0);
-				return res;
-			}
-			color_vec get_color_mult() const {
-				return RTT2_FRAG_INFO_INTERPOLATE_PTR(c);
+				color_mult_cache = RTT2_FRAG_INFO_INTERPOLATE_PTR(c);
 			}
 		};
 		struct fix_proj_params {
@@ -184,20 +174,14 @@ namespace rtt2 {
 		};
 
 		typedef void(*vertex_shader)(const rasterizer&, const mat4&, const vec3&, const vec3&, vec3&, vec3&, void*);
-		typedef bool(*test_shader)(const rasterizer&, const frag_info&, rtt2_float*, unsigned char*, void*);
+		typedef bool(*test_shader)(const rasterizer&, frag_info&, rtt2_float*, unsigned char*, void*);
 		typedef void(*fragment_shader)(const rasterizer&, const frag_info&, const texture*, device_color*, void*);
 
 		inline static void default_vertex_shader(const rasterizer&, const mat4 &mat, const vec3 &pos, const vec3 &n, vec3 &resr, vec3 &resn, void*) {
 			transform_default(mat, pos, resr);
 			transform_default(mat, n, resn, 0.0);
 		}
-		inline static bool default_test_shader(
-			const rasterizer&,
-			const frag_info &fi,
-			rtt2_float *zres,
-			unsigned char*,
-			void*
-		) {
+		inline static bool default_test_shader(const rasterizer&, frag_info &fi, rtt2_float *zres, unsigned char*, void*) {
 			if (fi.z_cache > *zres) {
 				*zres = fi.z_cache;
 				return true;
@@ -206,13 +190,13 @@ namespace rtt2 {
 		}
 		inline static void default_fragment_shader_withtex(const rasterizer&, const frag_info &info, const texture *tex, device_color *res, void*) {
 			color_vec tv;
-			tex->sample(info.get_uv(), tv, uv_clamp_mode::repeat_border, sample_mode::bilinear);
-			color_vec_mult(tv, info.get_color_mult(), tv);
+			tex->sample(info.uv_cache, tv);
+			color_vec_mult(tv, info.color_mult_cache, tv);
 			clamp_vec(tv, 0.0, 1.0);
 			res->from_vec4(tv);
 		}
 		inline static void default_fragment_shader_notex(const rasterizer&, const frag_info &info, const texture*, device_color *res, void*) {
-			color_vec tv = info.get_color_mult();
+			color_vec tv = info.color_mult_cache;
 			clamp_vec(tv, 0.0, 1.0);
 			res->from_vec4(tv);
 		}
