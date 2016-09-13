@@ -1,6 +1,7 @@
 #include <iostream>
 #include <sstream>
 #include <cfenv>
+#include <thread>
 
 #include "vec.h"
 #include "mat.h"
@@ -16,35 +17,24 @@ using namespace rtt2;
 #define WND_WIDTH 1200
 #define WND_HEIGHT 900
 
-#define BUF_WIDTH 300
-#define BUF_HEIGHT 225
+#define BUF_WIDTH 400
+#define BUF_HEIGHT 300
 
 #define SHADOW_BUFFER_SIZE 5000
 
-#define USE_SHADOW_MAP
 #define USE_MODEL
 #define MODEL_FILE "rsrc/buddha.obj"
 
-//#define TEAPOT
-
-#ifdef TEAPOT
-#	define MOVE_MULT 50
-#	define ROT_DIV 2000.0
-#	define INIT_CAM_X -200.0
-#	define ZNEAR 30.0
-#	define ZFAR 500.0
-#else
-#	define MOVE_MULT 0.5
-#	define ROT_DIV 2000.0
-#	define INIT_CAM_X -5.0
-#	define ZNEAR 0.8
-#	define ZFAR 50.0
-#endif
+#define MOVE_MULT 0.5
+#define ROT_DIV 2000.0
+#define INIT_CAM_POS -5.0, -4.0, 3.0
+#define ZNEAR 0.8
+#define ZFAR 50.0
 
 LRESULT CALLBACK wndproc(HWND, UINT, WPARAM, LPARAM);
 
 window wnd("rtt2", wndproc);
-bool goon = true, iscam = false;
+bool goon = true, iscam = false, licam = false;
 vec2 mouse(0, 0);
 
 rtt2_float ca_hor = 0.0, ca_vert = 0.0;
@@ -71,18 +61,76 @@ LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
+basic_renderer rend;
+mem_color_buffer full_rendering_buf(WND_WIDTH, WND_HEIGHT);
+sys_color_buffer finalbuf(wnd.get_dc(), WND_WIDTH, WND_HEIGHT);
+task_lock render_task;
+
+void render_full_fx_impl() {
+	if (render_task.try_start()) {
+		std::cout << "rendering full fx...";
+		rasterizer rast;
+		mem_depth_buffer mdb(WND_WIDTH, WND_HEIGHT);
+		rast.cur_buf.set(WND_WIDTH, WND_HEIGHT, full_rendering_buf.get_arr(), mdb.get_arr(), nullptr);
+		rast.clear_color_buf(device_color(255, 0, 0, 0));
+		rast.clear_depth_buf(-1.0);
+		rend.linked_rasterizer = &rast;
+		rend.setup_rendering_env();
+		long long t1, t2;
+		t1 = get_time();
+		rend.render_cached();
+		t2 = get_time();
+		if (render_task.get_status() != task_status::cancelled) {
+			enlarged_copy(full_rendering_buf, finalbuf);
+			finalbuf.display(wnd.get_dc());
+			std::cout << " done with " << (static_cast<rtt2_float>(get_timer_freq()) / (t2 - t1)) << " fps\n";
+		} else {
+			std::cout << " cancelled\n";
+		}
+		render_task.on_stopped();
+	}
+}
+void render_full_fx() {
+	std::thread renderer_thread(render_full_fx_impl);
+	renderer_thread.detach();
+}
+void cancel_render_full_fx() {
+	if (render_task.cancel()) {
+		rend.as_task.cancel_and_wait();
+		render_task.wait();
+	}
+}
+
+scene_description scene;
+mem_depth_buffer s2ds(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE), s3ds(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE);
+mat4 inv_cam;
+
+void render_shadows_impl() {
+	std::cout << "generating shadow map...";
+	shadow_settings set;
+	set.of_spotlight.tolerance = 0.001;
+	set.of_spotlight.znear = 100.0;
+	set.of_spotlight.zfar = 150.0;
+	scene.lights[0].build_shadow_cache(scene, buffer_set(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE, nullptr, s2ds.get_arr(), nullptr), set);
+	scene.lights[1].build_shadow_cache(scene, buffer_set(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE, nullptr, s3ds.get_arr(), nullptr), set);
+	for (auto i = scene.lights.begin(); i != scene.lights.end(); ++i) {
+		if (i->has_shadow) {
+			i->set_inverse_camera_mat(inv_cam);
+		}
+	}
+	std::cout << " done\n";
+}
+void stop_render_shadows() {
+}
+
 int main() {
-	sys_color_buffer finalbuf(wnd.get_dc(), WND_WIDTH, WND_HEIGHT);
 	mem_color_buffer screen_buf(BUF_WIDTH, BUF_HEIGHT);
 	mem_depth_buffer mdb(BUF_WIDTH, BUF_HEIGHT);
 	rasterizer rast;
-	fps_counter counter;
 	stopwatch stw;
-	basic_renderer rend;
 	camera_spec cam;
 	mat4 cammod, camproj;
 	scene_cache defsc;
-	buffer_set defbsc;
 
 	texture tex, dep;
 	model_data mdl1, mdl2;
@@ -93,27 +141,23 @@ int main() {
 	//directional_light l1;
 	spotlight l2, l3;
 
-	mem_depth_buffer s2ds(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE), s3ds(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE);
-	buffer_set s2bs, s3bs;
+	task_toggler full_render(render_full_fx, cancel_render_full_fx), draw_shadows(render_shadows_impl, stop_render_shadows);
+	bool lastf1down = false, lastf2down = false;
 
-	bool spc = false;
+	draw_shadows.affected = &full_render;
 
-	defbsc.set(BUF_WIDTH, BUF_HEIGHT, screen_buf.get_arr(), mdb.get_arr(), nullptr);
-
-	rast.cur_buf = defbsc;
-
-	counter.set_window(0.5);
+	rast.cur_buf.set(BUF_WIDTH, BUF_HEIGHT, screen_buf.get_arr(), mdb.get_arr(), nullptr);
 
 	cam.hori_fov = 60.0 * RTT2_PI / 180.0;
 	cam.aspect_ratio = BUF_HEIGHT / static_cast<rtt2_float>(BUF_WIDTH);
 	cam.znear = ZNEAR;
 	cam.zfar = ZFAR;
-	cam.pos = vec3(INIT_CAM_X, 0.0, 0.0);
+	cam.pos = vec3(INIT_CAM_POS);
 	cam.forward = vec3(1.0, 0.0, 0.0);
 	cam.up = vec3(0.0, 0.0, 1.0);
 	cam.make_cache();
 
-	std::cout << "loading textures...\n";
+	std::cout << "loading textures...";
 	{
 		file_access in("rsrc/po_img.ppm", "r");
 		tex.load_ppm(in);
@@ -125,9 +169,10 @@ int main() {
 		dep.load_ppm(in);
 	}
 	dep.make_float_cache_nocheck();
+	std::cout << " done\n";
 
 #ifdef USE_MODEL
-	std::cout << "loading models...\n";
+	std::cout << "loading models...";
 	{
 		file_access in(MODEL_FILE, "r");
 		mdl1.load_obj(in);
@@ -135,6 +180,7 @@ int main() {
 	if (mdl1.normals.size() == 1) {
 		mdl1.generate_normals_weighted_average();
 	}
+	std::cout << " done\n";
 #endif
 
 	test_po.depth = 0.2;
@@ -173,7 +219,7 @@ int main() {
 	l1.dir = vec3(-3.0, -4.0, -5.0);
 	l1.dir.set_length(1.0);*/
 
-	std::cout << "setting up lights...\n";
+	std::cout << "setting up lights...";
 	l2.color = color_vec_rgb(9000.0, 6000.0, 5000.0);
 	l2.pos = vec3(5.0, 95.0, 60.0);
 	l2.dir = vec3(-5.0, -95.0, -60.0);
@@ -187,17 +233,20 @@ int main() {
 	l3.dir.set_length(1.0);
 	l3.inner_angle = 0.07;
 	l3.outer_angle = 0.08;
+	std::cout << " done\n";
+
+#ifdef USE_MODEL
+	scene.models.push_back(model(&mdl1, &mtrl, &mm1, nullptr, nullptr, color_vec(1.0, 1.0, 1.0, 1.0)));
+#endif
+	scene.models.push_back(model(&mdl2, &mtrl, &mm2, &tex, &test_po, color_vec(1.0, 1.0, 1.0, 1.0)));
+	//scene.lights.push_back(light(l1));
+	scene.lights.push_back(light(l2));
+	scene.lights.push_back(light(l3));
 
 	rend.mat_modelview = &cammod;
 	rend.mat_projection = &camproj;
 	rend.linked_rasterizer = &rast;
-#ifdef USE_MODEL
-	rend.models.push_back(model(&mdl1, &mtrl, &mm1, nullptr, nullptr, color_vec(1.0, 1.0, 1.0, 1.0)));
-#endif
-	rend.models.push_back(model(&mdl2, &mtrl, &mm2, &tex, &test_po, color_vec(1.0, 1.0, 1.0, 1.0)));
-	//rend.lights.push_back(light(l1));
-	rend.lights.push_back(light(l2));
-	rend.lights.push_back(light(l3));
+	rend.scene = &scene;
 	rend.cache = &defsc;
 	rend.init_cache();
 	rend.refresh_cache();
@@ -205,19 +254,6 @@ int main() {
 	get_trans_camview_3(cam, cammod);
 	get_trans_frustrum_3(cam, camproj);
 
-#ifdef USE_SHADOW_MAP
-	std::cout << "generating shadow map...\n";
-	shadow_settings set;
-	set.of_spotlight.tolerance = 0.001;
-	set.of_spotlight.znear = 100.0;
-	set.of_spotlight.zfar = 150.0;
-	s2bs.set(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE, nullptr, s2ds.get_arr(), nullptr);
-	rend.lights[0].build_shadow_cache(rend, s2bs, set);
-	s3bs.set(SHADOW_BUFFER_SIZE, SHADOW_BUFFER_SIZE, nullptr, s3ds.get_arr(), nullptr);
-	rend.lights[1].build_shadow_cache(rend, s3bs, set);
-#endif
-
-	rast.cur_buf = defbsc;
 	rend.linked_rasterizer = &rast;
 	rend.mat_modelview = &cammod;
 	rend.mat_projection = &camproj;
@@ -227,7 +263,6 @@ int main() {
 	wnd.set_center();
 	wnd.show();
 
-	std::cout << "done\n";
 	while (goon) {
 		rtt2_float delta = stw.tick_in_seconds();
 
@@ -236,27 +271,43 @@ int main() {
 		rast.clear_color_buf(device_color(255, 0, 0, 0));
 		rast.clear_depth_buf(-1.0);
 
-#ifdef USE_SHADOW_MAP
-		if (is_key_down(VK_SPACE)) {
-			if (!spc) {
-				for (auto i = rend.lights.begin(); i != rend.lights.end(); ++i) {
-					i->has_shadow = !i->has_shadow;
-				}
-				spc = true;
+		bool f1d = is_key_down(VK_F1);
+		if (f1d != lastf1down) {
+			if (f1d) {
+				draw_shadows.add_barrier();
+			} else {
+				draw_shadows.remove_barrier();
 			}
-		} else {
-			spc = false;
 		}
-#else
-		if (is_key_down(VK_F1)) {
+		lastf1down = f1d;
+		if (f1d) {
 			test_po.depth -= 0.1 * delta;
 		}
-		if (is_key_down(VK_F2)) {
+
+		bool f2d = is_key_down(VK_F2);
+		if (f2d != lastf2down) {
+			if (f2d) {
+				draw_shadows.add_barrier();
+			} else {
+				draw_shadows.remove_barrier();
+			}
+		}
+		lastf2down = f2d;
+		if (f2d) {
 			test_po.depth += 0.1 * delta;
 		}
-#endif
 
+		if (licam != iscam) {
+			if (iscam) {
+				full_render.add_barrier();
+			} else {
+				full_render.remove_barrier();
+			}
+		}
+		licam = iscam;
 		if (iscam) {
+			rend.linked_rasterizer = &rast;
+
 			int x, y, cx, cy;
 			get_mouse_global_pos(x, y);
 			wnd.get_center_pos(cx, cy);
@@ -271,11 +322,10 @@ int main() {
 			get_trans_camview_3(cam, cammod);
 			get_trans_frustrum_3(cam, camproj);
 
-			mat4 invmod;
-			cammod.get_inversion(invmod);
-			for (auto i = rend.lights.begin(); i != rend.lights.end(); ++i) {
+			cammod.get_inversion(inv_cam);
+			for (auto i = scene.lights.begin(); i != scene.lights.end(); ++i) {
 				if (i->has_shadow) {
-					i->set_inverse_camera_mat(invmod);
+					i->set_inverse_camera_mat(inv_cam);
 				}
 			}
 
@@ -298,21 +348,17 @@ int main() {
 
 			rend.refresh_cache();
 
+			rend.setup_rendering_compact_env();
+			rend.render_cached();
+
+			enlarged_copy(screen_buf, finalbuf);
+			finalbuf.display(wnd.get_dc());
+
 			if (!is_key_down(VK_RBUTTON)) {
 				iscam = false;
 			}
 		}
-
-		rend.setup_rendering_env();
-		rend.render_cached();
-
-		enlarged_copy(screen_buf, finalbuf);
-		finalbuf.display(wnd.get_dc());
-
-		counter.update();
-		std::stringstream ss;
-		ss << "rasterizer test | fps: " << counter.get_fps();
-		wnd.set_caption(ss.str());
 	}
+	cancel_render_full_fx();
 	return 0;
 }

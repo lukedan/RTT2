@@ -25,4 +25,11 @@ namespace rtt2 {
 			res = (specular * std::pow(std::max(0.0, vec3::dot(out, in - ddotv * 2.0 * normal)), shiness) - diffuse * ddotv) * c;
 		}
 	};
+	struct material_ggx : public material {
+		rtt2_float diffuse, specular;
+
+		void get_illum(const vec3 &in, const vec3 &out, const vec3 &normal, const color_vec_rgb &c, color_vec_rgb &res) const override {
+
+		}
+	};
 }

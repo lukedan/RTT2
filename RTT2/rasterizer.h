@@ -106,10 +106,9 @@ namespace rtt2 {
 			vec4 cam_pos;
 			vec2 screen_pos;
 
-			void complete(const buffer_set &buf, const mat4 &mt) {
+			void complete(const mat4 &mt) {
 				cam_pos = mt * vec4(shaded_pos);
 				cam_pos.homogenize_2(screen_pos);
-				buf.denormalize_scr_coord(screen_pos);
 			}
 		};
 		struct vertex_normal_cache {
@@ -119,7 +118,6 @@ namespace rtt2 {
 			vertex_pos_cache pos;
 			vertex_normal_cache normal;
 		};
-	protected:
 		struct vertex_info {
 			vertex_info() = default;
 			vertex_info(
@@ -141,7 +139,6 @@ namespace rtt2 {
 			const vec2 *uv;
 			const color_vec *c;
 		};
-	public:
 		struct frag_info {
 			rtt2_float p, q, r;
 			unsigned char stencil;
@@ -226,6 +223,52 @@ namespace rtt2 {
 			params.vm = p3.w;
 		}
 
+		typedef void(*triangle_rendering_type)(rasterizer&, const vertex_info*, const vec2*, const texture*, void*);
+
+		inline static void drawmode_full(rasterizer &r, const vertex_info *v, const vec2 *ps, const texture *tex, void *tag) {
+			const vec2 *pscrp[3]{ ps, ps + 1, ps + 2 };
+			RTT2_SORT3(pscrp, ->y, < );
+			rtt2_float
+				invk_tm = (pscrp[1]->x - pscrp[0]->x) / (pscrp[1]->y - pscrp[0]->y),
+				invk_td = (pscrp[2]->x - pscrp[0]->x) / (pscrp[2]->y - pscrp[0]->y),
+				invk_md = (pscrp[2]->x - pscrp[1]->x) / (pscrp[2]->y - pscrp[1]->y);
+			fix_proj_params params;
+			r.get_fix_proj_params(v[0].pos->cam_pos, v[1].pos->cam_pos, v[2].pos->cam_pos, params);
+			if (invk_tm < invk_td) {
+				r.draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_td, invk_tm, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag);
+			} else {
+				r.draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_tm, invk_td, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag);
+			}
+			if (invk_td < invk_md) {
+				r.draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_td, invk_md, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag);
+			} else {
+				r.draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_md, invk_td, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag);
+			}
+		}
+		inline static void drawmode_wireframe(rasterizer &r, const vertex_info *v, const vec2 *ps, const texture*, void*) {
+			if (r.cur_buf.color_arr) {
+				device_color c;
+				c.from_vec4(*v[0].c);
+				r.draw_line(ps[0], ps[1], c);
+				r.draw_line(ps[1], ps[2], c);
+				r.draw_line(ps[2], ps[0], c);
+			}
+		}
+		inline static void drawmode_dotcloud(rasterizer &r, const vertex_info *v, const vec2 *ps, const texture*, void*) {
+			device_color c;
+			c.from_vec4(*v[0].c);
+			if (ps[0].x > 0.0 && ps[0].x < r.cur_buf.w && ps[0].y > 0.0 && ps[0].y < r.cur_buf.h) {
+				r.set_pixel(static_cast<size_t>(ps[0].x), static_cast<size_t>(ps[0].y), c);
+			}
+			if (ps[1].x > 0.0 && ps[1].x < r.cur_buf.w && ps[1].y > 0.0 && ps[1].y < r.cur_buf.h) {
+				r.set_pixel(static_cast<size_t>(ps[1].x), static_cast<size_t>(ps[1].y), c);
+			}
+			if (ps[2].x > 0.0 && ps[2].x < r.cur_buf.w && ps[2].y > 0.0 && ps[2].y < r.cur_buf.h) {
+				r.set_pixel(static_cast<size_t>(ps[2].x), static_cast<size_t>(ps[2].y), c);
+			}
+		}
+
+		triangle_rendering_type mode = drawmode_full;
 	protected:
 		void draw_half_triangle_half(
 			rtt2_float sx, rtt2_float sy, rtt2_float invk1, rtt2_float invk2, rtt2_float ymin, rtt2_float ymax,
@@ -257,51 +300,6 @@ namespace rtt2 {
 				}
 			}
 		}
-		void draw_triangle_impl(const vertex_info *v, const vec2 &p1, const vec2 &p2, const vec2 &p3, const texture *tex, void *tag) {
-#ifdef RTT2_FORCE_DOTCLOUD
-			device_color c;
-			c.from_vec4(*v[0].c);
-			if (p1.x > 0.0 && p1.x < cur_buf.w && p1.y > 0.0 && p1.y < cur_buf.h) {
-				set_pixel(p1.x, p1.y, c);
-			}
-			if (p2.x > 0.0 && p2.x < cur_buf.w && p2.y > 0.0 && p2.y < cur_buf.h) {
-				set_pixel(p2.x, p2.y, c);
-			}
-			if (p3.x > 0.0 && p3.x < cur_buf.w && p3.y > 0.0 && p3.y < cur_buf.h) {
-				set_pixel(p3.x, p3.y, c);
-			}
-#else
-#	ifdef RTT2_FORCE_WIREFRAME
-			if (cur_buf.color_arr) {
-				device_color c;
-				c.from_vec4(*v[0].c);
-				draw_line(p1, p2, c);
-				draw_line(p2, p3, c);
-				draw_line(p3, p1, c);
-			}
-#	else
-			const vec2 *pscrp[3]{ &p1, &p2, &p3 };
-			RTT2_SORT3(pscrp, ->y, < );
-			rtt2_float
-				invk_tm = (pscrp[1]->x - pscrp[0]->x) / (pscrp[1]->y - pscrp[0]->y),
-				invk_td = (pscrp[2]->x - pscrp[0]->x) / (pscrp[2]->y - pscrp[0]->y),
-				invk_md = (pscrp[2]->x - pscrp[1]->x) / (pscrp[2]->y - pscrp[1]->y);
-			fix_proj_params params;
-			get_fix_proj_params(v[0].pos->cam_pos, v[1].pos->cam_pos, v[2].pos->cam_pos, params);
-			if (invk_tm < invk_td) {
-				draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_td, invk_tm, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag);
-			} else {
-				draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_tm, invk_td, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag);
-			}
-			if (invk_td < invk_md) {
-				draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_td, invk_md, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag);
-			} else {
-				draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_md, invk_td, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag);
-			}
-#	endif
-#endif
-		}
-
 		void clip_against_xy(const vec4 &front, const vec4 &back, vec2 &resp) {
 			(front * back.z - back * front.z).homogenize_2(resp);
 		}
@@ -320,24 +318,36 @@ namespace rtt2 {
 			};
 			vertex_info *pv[3]{ &v[0], &v[1], &v[2] };
 			RTT2_SORT3(pv, ->pos->cam_pos.z, < );
-			vec2 t1, t2;
+			vec2 ts[3];
 			if (pv[2]->pos->cam_pos.z > 0.0) {
 				return;
 			} else if (pv[1]->pos->cam_pos.z > 0.0) {
-				clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, t1);
-				clip_against_xy(pv[2]->pos->cam_pos, pv[1]->pos->cam_pos, t2);
-				cur_buf.denormalize_scr_coord(t1);
-				cur_buf.denormalize_scr_coord(t2);
-				draw_triangle_impl(v, t1, t2, pv[2]->pos->screen_pos, tex, tag);
+				clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, ts[0]);
+				clip_against_xy(pv[2]->pos->cam_pos, pv[1]->pos->cam_pos, ts[1]);
+				ts[2] = pv[2]->pos->screen_pos;
+				cur_buf.denormalize_scr_coord(ts[0]);
+				cur_buf.denormalize_scr_coord(ts[1]);
+				cur_buf.denormalize_scr_coord(ts[2]);
+				mode(*this, v, ts, tex, tag);
 			} else if (pv[0]->pos->cam_pos.z > 0.0) {
-				clip_against_xy(pv[1]->pos->cam_pos, pv[0]->pos->cam_pos, t1);
-				clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, t2);
-				cur_buf.denormalize_scr_coord(t1);
-				cur_buf.denormalize_scr_coord(t2);
-				draw_triangle_impl(v, pv[1]->pos->screen_pos, pv[2]->pos->screen_pos, t1, tex, tag);
-				draw_triangle_impl(v, t1, t2, pv[2]->pos->screen_pos, tex, tag);
+				clip_against_xy(pv[1]->pos->cam_pos, pv[0]->pos->cam_pos, ts[0]);
+				clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, ts[1]);
+				ts[2] = pv[2]->pos->screen_pos;
+				cur_buf.denormalize_scr_coord(ts[2]);
+				cur_buf.denormalize_scr_coord(ts[0]);
+				cur_buf.denormalize_scr_coord(ts[1]);
+				mode(*this, v, ts, tex, tag);
+				ts[1] = pv[1]->pos->screen_pos;
+				cur_buf.denormalize_scr_coord(ts[1]);
+				mode(*this, v, ts, tex, tag);
 			} else {
-				draw_triangle_impl(v, pv[0]->pos->screen_pos, pv[1]->pos->screen_pos, pv[2]->pos->screen_pos, tex, tag);
+				ts[0] = pv[0]->pos->screen_pos;
+				ts[1] = pv[1]->pos->screen_pos;
+				ts[2] = pv[2]->pos->screen_pos;
+				cur_buf.denormalize_scr_coord(ts[0]);
+				cur_buf.denormalize_scr_coord(ts[1]);
+				cur_buf.denormalize_scr_coord(ts[2]);
+				mode(*this, v, ts, tex, tag);
 			}
 		}
 		void draw_cached_triangle(
@@ -366,9 +376,9 @@ namespace rtt2 {
 			if (vec3::dot(vc[0].pos.shaded_pos, vec3::cross(vc[1].pos.shaded_pos, vc[2].pos.shaded_pos)) > 0.0) {
 				return;
 			}
-			vc[0].pos.complete(cur_buf, *mat_proj);
-			vc[1].pos.complete(cur_buf, *mat_proj);
-			vc[2].pos.complete(cur_buf, *mat_proj);
+			vc[0].pos.complete(*mat_proj);
+			vc[1].pos.complete(*mat_proj);
+			vc[2].pos.complete(*mat_proj);
 			draw_cached_triangle_no_backface_culling(
 				vc[0].pos, vc[1].pos, vc[2].pos, vc[0].normal, vc[1].normal, vc[2].normal,
 				uv1, uv2, uv3, c1, c2, c3, tex, tag

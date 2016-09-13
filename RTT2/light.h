@@ -5,7 +5,7 @@
 #include "buffer.h"
 
 namespace rtt2 {
-	class basic_renderer;
+	struct scene_description;
 	struct light_data;
 
 	union light_cache {
@@ -48,7 +48,7 @@ namespace rtt2 {
 		} shadow_cache;
 		void set_inverse_camera_mat(const mat4&);
 		bool in_shadow(const vec3&) const;
-		void build_shadow_cache(basic_renderer&, const buffer_set&, const shadow_settings&);
+		void build_shadow_cache(const scene_description&, const buffer_set&, const shadow_settings&);
 	};
 
 	struct light_data {
@@ -58,7 +58,7 @@ namespace rtt2 {
 		virtual void build_cache(const mat4&, light_cache&) const = 0;
 		virtual bool get_illum(const light_cache&, const vec3&, vec3&, color_vec_rgb&) const = 0;
 
-		virtual void build_shadow_cache(basic_renderer&, const buffer_set&, const shadow_settings&, light::shadow_data&) const = 0;
+		virtual void build_shadow_cache(const scene_description&, const buffer_set&, const shadow_settings&, light::shadow_data&) const = 0;
 		virtual void set_inverse_camera_mat(const mat4&, light::shadow_data&) const = 0;
 		virtual bool in_shadow(const vec3&, const light::shadow_data&) const = 0;
 	};
@@ -69,8 +69,8 @@ namespace rtt2 {
 	inline bool light::in_shadow(const vec3 &pt) const {
 		return (has_shadow ? data->in_shadow(pt, shadow_cache) : false);
 	}
-	inline void light::build_shadow_cache(basic_renderer &rend, const buffer_set &bs, const shadow_settings &set) {
-		data->build_shadow_cache(rend, bs, set, shadow_cache);
+	inline void light::build_shadow_cache(const scene_description &sc, const buffer_set &bs, const shadow_settings &set) {
+		data->build_shadow_cache(sc, bs, set, shadow_cache);
 		has_shadow = true;
 	}
 
@@ -132,7 +132,7 @@ namespace rtt2 {
 			return true;
 		}
 
-		void build_shadow_cache(basic_renderer&, const buffer_set&, const shadow_settings&, light::shadow_data&) const override;
+		void build_shadow_cache(const scene_description&, const buffer_set&, const shadow_settings&, light::shadow_data&) const override;
 		void set_inverse_camera_mat(const mat4 &mt, light::shadow_data &data) const override {
 			mat4::mult_ref(data.of_spotlight.mat_w2sm, mt, data.of_spotlight.mat_tot);
 		}

@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <deque>
 #include <algorithm>
+#include <atomic>
 
 #include <Windows.h>
 
@@ -10,6 +11,9 @@
 #define RTT2_CONCAT(A, B) A##B
 
 #define RTT2_PI 3.1415926535897
+#define RTT2_SQRT2 1.4142135623731
+#define RTT2_SQRT3 1.7320508075689
+#define RTT2_SQRT5 2.2360679774998
 
 // FUCK WINDOWS
 #undef min
@@ -328,6 +332,80 @@ namespace rtt2 {
 		}
 	protected:
 		FILE *_f;
+	};
+
+	enum class task_status : unsigned char {
+		stopped,
+		running,
+		cancelled
+	};
+	struct task_lock {
+	public:
+		bool try_start() {
+			task_status exp(task_status::stopped);
+			return _lock.compare_exchange_strong(exp, task_status::running);
+		}
+		bool check_cancellation_and_stop() {
+			task_status exp(task_status::cancelled);
+			return _lock.compare_exchange_strong(exp, task_status::stopped);
+		}
+
+		void set_status(task_status ts) {
+			_lock.store(ts);
+		}
+		task_status get_status() const {
+			return _lock.load();
+		}
+		void on_stopped() {
+			set_status(task_status::stopped);
+		}
+		bool cancel() {
+			task_status exp(task_status::running);
+			return _lock.compare_exchange_strong(exp, task_status::cancelled);
+		}
+		void wait() {
+			while (_lock.load() == task_status::cancelled) {
+			}
+		}
+		bool cancel_and_wait() {
+			if (cancel()) {
+				wait();
+				return true;
+			}
+			return false;
+		}
+	protected:
+		std::atomic<task_status> _lock{ task_status::stopped };
+	};
+	struct task_toggler {
+	public:
+		typedef void (*callback)();
+
+		task_toggler(callback c, callback b) : on_clear(c), on_blocked(b) {
+		}
+
+		callback on_clear, on_blocked;
+
+		task_toggler *affected = nullptr;
+
+		void add_barrier() {
+			if ((++_dep) == 1) {
+				if (affected) {
+					affected->add_barrier();
+				}
+				on_blocked();
+			}
+		}
+		void remove_barrier() {
+			if ((--_dep) == 0) {
+				on_clear();
+				if (affected) {
+					affected->remove_barrier();
+				}
+			}
+		}
+	protected:
+		size_t _dep = 0;
 	};
 
 	// functions for debugging
