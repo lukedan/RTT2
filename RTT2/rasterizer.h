@@ -187,7 +187,7 @@ namespace rtt2 {
 		}
 		inline static void default_fragment_shader_withtex(const rasterizer&, const frag_info &info, const texture *tex, device_color *res, void*) {
 			color_vec tv;
-			tex->sample(info.uv_cache, tv);
+			sample(*tex, info.uv_cache, tv);
 			color_vec_mult(tv, info.color_mult_cache, tv);
 			clamp_vec(tv, 0.0, 1.0);
 			res->from_vec4(tv);
@@ -224,26 +224,33 @@ namespace rtt2 {
 		}
 
 		typedef void(*triangle_rendering_type)(rasterizer&, const vertex_info*, const vec2*, const texture*, void*);
+		typedef void(*triangle_async_rendering_type)(rasterizer&, const vertex_info*, const vec2*, const texture*, void*, task_lock&);
+
+#define RTT2_RASTERIZER_DRAWMODE_FULL(FN, ...)																			   \
+	const vec2 *pscrp[3]{ ps, ps + 1, ps + 2 };																			   \
+	RTT2_SORT3(pscrp, ->y, <);																							   \
+	rtt2_float																											   \
+		invk_tm = (pscrp[1]->x - pscrp[0]->x) / (pscrp[1]->y - pscrp[0]->y),											   \
+		invk_td = (pscrp[2]->x - pscrp[0]->x) / (pscrp[2]->y - pscrp[0]->y),											   \
+		invk_md = (pscrp[2]->x - pscrp[1]->x) / (pscrp[2]->y - pscrp[1]->y);											   \
+	fix_proj_params params;																								   \
+	r.get_fix_proj_params(v[0].pos->cam_pos, v[1].pos->cam_pos, v[2].pos->cam_pos, params);								   \
+	if (invk_tm < invk_td) {																							   \
+		r.FN(pscrp[0]->x, pscrp[0]->y, invk_td, invk_tm, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag, ##__VA_ARGS__);    \
+	} else {																											   \
+		r.FN(pscrp[0]->x, pscrp[0]->y, invk_tm, invk_td, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag, ##__VA_ARGS__);    \
+	}																													   \
+	if (invk_td < invk_md) {																							   \
+		r.FN(pscrp[2]->x, pscrp[2]->y, invk_td, invk_md, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag, ##__VA_ARGS__);    \
+	} else {																											   \
+		r.FN(pscrp[2]->x, pscrp[2]->y, invk_md, invk_td, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag, ##__VA_ARGS__);    \
+	}																													   \
 
 		inline static void drawmode_full(rasterizer &r, const vertex_info *v, const vec2 *ps, const texture *tex, void *tag) {
-			const vec2 *pscrp[3]{ ps, ps + 1, ps + 2 };
-			RTT2_SORT3(pscrp, ->y, < );
-			rtt2_float
-				invk_tm = (pscrp[1]->x - pscrp[0]->x) / (pscrp[1]->y - pscrp[0]->y),
-				invk_td = (pscrp[2]->x - pscrp[0]->x) / (pscrp[2]->y - pscrp[0]->y),
-				invk_md = (pscrp[2]->x - pscrp[1]->x) / (pscrp[2]->y - pscrp[1]->y);
-			fix_proj_params params;
-			r.get_fix_proj_params(v[0].pos->cam_pos, v[1].pos->cam_pos, v[2].pos->cam_pos, params);
-			if (invk_tm < invk_td) {
-				r.draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_td, invk_tm, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag);
-			} else {
-				r.draw_half_triangle_half(pscrp[0]->x, pscrp[0]->y, invk_tm, invk_td, pscrp[1]->y, pscrp[0]->y, params, v, tex, tag);
-			}
-			if (invk_td < invk_md) {
-				r.draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_td, invk_md, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag);
-			} else {
-				r.draw_half_triangle_half(pscrp[2]->x, pscrp[2]->y, invk_md, invk_td, pscrp[2]->y, pscrp[1]->y, params, v, tex, tag);
-			}
+			RTT2_RASTERIZER_DRAWMODE_FULL(draw_half_triangle_half);
+		}
+		inline static void drawmode_async_full(rasterizer &r, const vertex_info *v, const vec2 *ps, const texture *tex, void *tag, task_lock &lock) {
+			RTT2_RASTERIZER_DRAWMODE_FULL(draw_half_triangle_half_async, lock);
 		}
 		inline static void drawmode_wireframe(rasterizer &r, const vertex_info *v, const vec2 *ps, const texture*, void*) {
 			if (r.cur_buf.color_arr) {
@@ -253,6 +260,9 @@ namespace rtt2 {
 				r.draw_line(ps[1], ps[2], c);
 				r.draw_line(ps[2], ps[0], c);
 			}
+		}
+		inline static void drawmode_wireframe_async_adapter(rasterizer &r, const vertex_info *v, const vec2 *ps, const texture *t, void *tag, task_lock&) {
+			drawmode_wireframe(r, v, ps, t, tag);
 		}
 		inline static void drawmode_dotcloud(rasterizer &r, const vertex_info *v, const vec2 *ps, const texture*, void*) {
 			device_color c;
@@ -269,41 +279,98 @@ namespace rtt2 {
 		}
 
 		triangle_rendering_type mode = drawmode_full;
+		triangle_async_rendering_type mode_async = drawmode_async_full;
 	protected:
+#define RTT2_RASTERIZER_DRAW_HALF_TRIANGLE_PART1												     \
+	sx += 0.5;																					     \
+	sy -= 0.5;																					     \
+	size_t																						     \
+		miny = static_cast<size_t>(std::max(ymin + 0.5, 0.0)),									     \
+		maxy = static_cast<size_t>(clamp<rtt2_float>(ymax + 0.5, 0.0, cur_buf.h));				     \
+	rtt2_float xstep = 2.0 / cur_buf.w, ystep = 2.0 / cur_buf.h, ys = (miny + 0.5) * ystep - 1.0;    \
+	for (size_t y = miny; y < maxy; ++y, ys += ystep) {											     \
+		rtt2_float diff = y - sy, left = diff * invk1 + sx, right = diff * invk2 + sx;			     \
+		size_t																					     \
+			l = static_cast<size_t>(std::max(left, 0.0)),										     \
+			r = static_cast<size_t>(clamp<rtt2_float>(right, 0.0, cur_buf.w));					     \
+		rtt2_float xs = (l + 0.5) * xstep - 1.0;												  	     \
+		fragment_data frag;																		     \
+		get_fragment_data_at(l, y, frag);														     \
+		for (size_t cx = l; cx < r; ++cx, xs += xstep, frag.incr()) {							     \
+
+#define RTT2_RASTERIZER_DRAW_HALF_TRIANGLE_PART2						\
+			frag_info fi;												\
+			fix_proj_tex_mapping(params, xs, ys, fi.p, fi.q);			\
+			fi.r = 1.0 - fi.p - fi.q;									\
+			fi.v = v;													\
+			fi.make_cache();											\
+			if (shader_test(*this, fi, frag.z, frag.stencil, tag)) {	\
+				shader_frag(*this, fi, tex, frag.color, tag);			\
+			}															\
+		}																\
+	}																	\
+
 		void draw_half_triangle_half(
 			rtt2_float sx, rtt2_float sy, rtt2_float invk1, rtt2_float invk2, rtt2_float ymin, rtt2_float ymax,
 			const fix_proj_params &params, const vertex_info *v, const texture *tex, void *tag
 		) {
-			sx += 0.5;
-			sy -= 0.5;
-			size_t
-				miny = static_cast<size_t>(std::max(ymin + 0.5, 0.0)),
-				maxy = static_cast<size_t>(clamp<rtt2_float>(ymax + 0.5, 0.0, cur_buf.h));
-			rtt2_float xstep = 2.0 / cur_buf.w, ystep = 2.0 / cur_buf.h, ys = (miny + 0.5) * ystep - 1.0;
-			for (size_t y = miny; y < maxy; ++y, ys += ystep) {
-				rtt2_float diff = y - sy, left = diff * invk1 + sx, right = diff * invk2 + sx;
-				size_t
-					l = static_cast<size_t>(std::max(left, 0.0)),
-					r = static_cast<size_t>(clamp<rtt2_float>(right, 0.0, cur_buf.w));
-				rtt2_float xs = (l + 0.5) * xstep - 1.0;
-				fragment_data frag;
-				get_fragment_data_at(l, y, frag);
-				for (size_t cx = l; cx < r; ++cx, xs += xstep, frag.incr()) {
-					frag_info fi;
-					fix_proj_tex_mapping(params, xs, ys, fi.p, fi.q);
-					fi.r = 1.0 - fi.p - fi.q;
-					fi.v = v;
-					fi.make_cache();
-					if (shader_test(*this, fi, frag.z, frag.stencil, tag)) {
-						shader_frag(*this, fi, tex, frag.color, tag);
-					}
-				}
+			RTT2_RASTERIZER_DRAW_HALF_TRIANGLE_PART1;
+			RTT2_RASTERIZER_DRAW_HALF_TRIANGLE_PART2;
+		}
+		void draw_half_triangle_half_async(
+			rtt2_float sx, rtt2_float sy, rtt2_float invk1, rtt2_float invk2, rtt2_float ymin, rtt2_float ymax,
+			const fix_proj_params &params, const vertex_info *v, const texture *tex, void *tag, task_lock &lock
+		) {
+			RTT2_RASTERIZER_DRAW_HALF_TRIANGLE_PART1;
+			if (lock.get_status() == task_status::cancelled) {
+				return;
 			}
+			RTT2_RASTERIZER_DRAW_HALF_TRIANGLE_PART2;
 		}
 		void clip_against_xy(const vec4 &front, const vec4 &back, vec2 &resp) {
 			(front * back.z - back * front.z).homogenize_2(resp);
 		}
 	public:
+#define RTT2_RASTERIZER_DRAW_CACHED_NO_CULLING(FN, ...)					     \
+	vertex_info v[3]{													     \
+		{ v1, n1, uv1, c1 },											     \
+		{ v2, n2, uv2, c2 },											     \
+		{ v3, n3, uv3, c3 }												     \
+	};																	     \
+	vertex_info *pv[3]{ &v[0], &v[1], &v[2] };							     \
+	RTT2_SORT3(pv, ->pos->cam_pos.z, <);								  	     \
+	vec2 ts[3];															     \
+	if (pv[2]->pos->cam_pos.z > 0.0) {									     \
+		return;															     \
+	} else if (pv[1]->pos->cam_pos.z > 0.0) {							     \
+		clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, ts[0]);    \
+		clip_against_xy(pv[2]->pos->cam_pos, pv[1]->pos->cam_pos, ts[1]);    \
+		ts[2] = pv[2]->pos->screen_pos;									     \
+		cur_buf.denormalize_scr_coord(ts[0]);							     \
+		cur_buf.denormalize_scr_coord(ts[1]);							     \
+		cur_buf.denormalize_scr_coord(ts[2]);							     \
+		FN(*this, v, ts, tex, tag, ##__VA_ARGS__);						     \
+	} else if (pv[0]->pos->cam_pos.z > 0.0) {							     \
+		clip_against_xy(pv[1]->pos->cam_pos, pv[0]->pos->cam_pos, ts[0]);    \
+		clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, ts[1]);    \
+		ts[2] = pv[2]->pos->screen_pos;									     \
+		cur_buf.denormalize_scr_coord(ts[2]);							     \
+		cur_buf.denormalize_scr_coord(ts[0]);							     \
+		cur_buf.denormalize_scr_coord(ts[1]);							     \
+		FN(*this, v, ts, tex, tag, ##__VA_ARGS__);						     \
+		ts[1] = pv[1]->pos->screen_pos;									     \
+		cur_buf.denormalize_scr_coord(ts[1]);							     \
+		FN(*this, v, ts, tex, tag, ##__VA_ARGS__);						     \
+	} else {															     \
+		ts[0] = pv[0]->pos->screen_pos;									     \
+		ts[1] = pv[1]->pos->screen_pos;									     \
+		ts[2] = pv[2]->pos->screen_pos;									     \
+		cur_buf.denormalize_scr_coord(ts[0]);							     \
+		cur_buf.denormalize_scr_coord(ts[1]);							     \
+		cur_buf.denormalize_scr_coord(ts[2]);							     \
+		FN(*this, v, ts, tex, tag, ##__VA_ARGS__);						     \
+	}																	     \
+
 		void draw_cached_triangle_no_backface_culling(
 			const vertex_pos_cache &v1, const vertex_pos_cache &v2, const vertex_pos_cache &v3,
 			const vertex_normal_cache &n1, const vertex_normal_cache &n2, const vertex_normal_cache &n3,
@@ -311,45 +378,23 @@ namespace rtt2 {
 			const color_vec &c1, const color_vec &c2, const color_vec &c3,
 			const texture *tex, void *tag
 		) {
-			vertex_info v[3]{
-				{ v1, n1, uv1, c1 },
-				{ v2, n2, uv2, c2 },
-				{ v3, n3, uv3, c3 }
-			};
-			vertex_info *pv[3]{ &v[0], &v[1], &v[2] };
-			RTT2_SORT3(pv, ->pos->cam_pos.z, < );
-			vec2 ts[3];
-			if (pv[2]->pos->cam_pos.z > 0.0) {
-				return;
-			} else if (pv[1]->pos->cam_pos.z > 0.0) {
-				clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, ts[0]);
-				clip_against_xy(pv[2]->pos->cam_pos, pv[1]->pos->cam_pos, ts[1]);
-				ts[2] = pv[2]->pos->screen_pos;
-				cur_buf.denormalize_scr_coord(ts[0]);
-				cur_buf.denormalize_scr_coord(ts[1]);
-				cur_buf.denormalize_scr_coord(ts[2]);
-				mode(*this, v, ts, tex, tag);
-			} else if (pv[0]->pos->cam_pos.z > 0.0) {
-				clip_against_xy(pv[1]->pos->cam_pos, pv[0]->pos->cam_pos, ts[0]);
-				clip_against_xy(pv[2]->pos->cam_pos, pv[0]->pos->cam_pos, ts[1]);
-				ts[2] = pv[2]->pos->screen_pos;
-				cur_buf.denormalize_scr_coord(ts[2]);
-				cur_buf.denormalize_scr_coord(ts[0]);
-				cur_buf.denormalize_scr_coord(ts[1]);
-				mode(*this, v, ts, tex, tag);
-				ts[1] = pv[1]->pos->screen_pos;
-				cur_buf.denormalize_scr_coord(ts[1]);
-				mode(*this, v, ts, tex, tag);
-			} else {
-				ts[0] = pv[0]->pos->screen_pos;
-				ts[1] = pv[1]->pos->screen_pos;
-				ts[2] = pv[2]->pos->screen_pos;
-				cur_buf.denormalize_scr_coord(ts[0]);
-				cur_buf.denormalize_scr_coord(ts[1]);
-				cur_buf.denormalize_scr_coord(ts[2]);
-				mode(*this, v, ts, tex, tag);
-			}
+			RTT2_RASTERIZER_DRAW_CACHED_NO_CULLING(mode);
 		}
+		void draw_cached_triangle_no_backface_culling_async(
+			const vertex_pos_cache &v1, const vertex_pos_cache &v2, const vertex_pos_cache &v3,
+			const vertex_normal_cache &n1, const vertex_normal_cache &n2, const vertex_normal_cache &n3,
+			const vec2 &uv1, const vec2 &uv2, const vec2 &uv3,
+			const color_vec &c1, const color_vec &c2, const color_vec &c3,
+			const texture *tex, void *tag, task_lock &lock
+		) {
+			RTT2_RASTERIZER_DRAW_CACHED_NO_CULLING(mode_async, lock);
+		}
+
+#define RTT2_RASTERIZER_TEST_BACKFACE(PT, COMP)								      \
+	if (vec3::dot(PT##1##COMP, vec3::cross(PT##2##COMP, PT##3##COMP)) > 0.0) {    \
+		return;																      \
+	}																		      \
+
 		void draw_cached_triangle(
 			const vertex_pos_cache &v1, const vertex_pos_cache &v2, const vertex_pos_cache &v3,
 			const vertex_normal_cache &n1, const vertex_normal_cache &n2, const vertex_normal_cache &n3,
@@ -357,10 +402,18 @@ namespace rtt2 {
 			const color_vec &c1, const color_vec &c2, const color_vec &c3,
 			const texture *tex, void *tag
 		) {
-			if (vec3::dot(v1.shaded_pos, vec3::cross(v2.shaded_pos, v3.shaded_pos)) > 0.0) {
-				return;
-			}
+			RTT2_RASTERIZER_TEST_BACKFACE(v, .shaded_pos);
 			draw_cached_triangle_no_backface_culling(v1, v2, v3, n1, n2, n3, uv1, uv2, uv3, c1, c2, c3, tex, tag);
+		}
+		void draw_cached_triangle_async(
+			const vertex_pos_cache &v1, const vertex_pos_cache &v2, const vertex_pos_cache &v3,
+			const vertex_normal_cache &n1, const vertex_normal_cache &n2, const vertex_normal_cache &n3,
+			const vec2 &uv1, const vec2 &uv2, const vec2 &uv3,
+			const color_vec &c1, const color_vec &c2, const color_vec &c3,
+			const texture *tex, void *tag, task_lock &lock
+		) {
+			RTT2_RASTERIZER_TEST_BACKFACE(v, .shaded_pos);
+			draw_cached_triangle_no_backface_culling_async(v1, v2, v3, n1, n2, n3, uv1, uv2, uv3, c1, c2, c3, tex, tag, lock);
 		}
 		void draw_triangle(
 			const vec3 &p1, const vec3 &p2, const vec3 &p3,

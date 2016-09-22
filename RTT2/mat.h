@@ -334,10 +334,21 @@ namespace rtt2 {
 		std::memcpy(mat[3], &c4, sizeof(vec4));
 	}
 
-	inline void solve_linear_2(const vec2 &v1, const vec2 &v2, const vec2 &vr, rtt2_float &p, rtt2_float &q) {
+	inline void solve_parallelogram_2(const vec2 &v1, const vec2 &v2, const vec2 &vr, rtt2_float &p, rtt2_float &q) {
 		rtt2_float div = 1.0 / (v1.x * v2.y - v2.x * v1.y);
 		p = (v2.y * vr.x - v2.x * vr.y) * div;
 		q = (v1.x * vr.y - v1.y * vr.x) * div;
+	}
+	inline void solve_parallelogram_3(const vec3 &v1, const vec3 &v2, const vec3 &vr, rtt2_float &p, rtt2_float &q) { // TODO optimization
+		vec3 yaxis;
+		vec3::cross_ref(vec3::cross(v1, v2), v1, yaxis);
+		rtt2_float
+			v2x = vec3::dot(v2, v1),
+			v2y = vec3::dot(v2, yaxis),
+			vrx = vec3::dot(vr, v1),
+			vry = vec3::dot(vr, yaxis);
+		q = vry / v2y;
+		p = (vrx * v2y - vry * v2x) / (v2y * v1.sqr_length());
 	}
 
 	inline void get_trans_pts_to_pts_2(
@@ -351,7 +362,7 @@ namespace rtt2 {
 		make_mat3_from_vec2s(pt1, pt2, pt3, t2);
 		mat3::mult_ref(t2, t1, res);
 	}
-	inline void get_trans_rotate_2(const vec2 &center, rtt2_float angle, mat3 &res) {
+	inline void get_trans_rotation_2(const vec2 &center, rtt2_float angle, mat3 &res) {
 		rtt2_float cosv = std::cos(angle), sinv = std::sin(angle), omcv = 1.0 - cosv;
 		res[0][0] = res[1][1] = cosv;
 		res[1][0] = -(res[0][1] = sinv);
@@ -360,7 +371,7 @@ namespace rtt2 {
 		res[0][2] = res[1][2] = 0.0;
 		res[2][2] = 1.0;
 	}
-	inline void get_trans_rotate_2_met2(const vec2 &center, rtt2_float angle, mat3 &res) {
+	inline void get_trans_rotation_2_met2(const vec2 &center, rtt2_float angle, mat3 &res) {
 		rtt2_float cosv = std::cos(angle), sinv = std::sin(angle);
 		get_trans_pts_to_pts_2(
 			center, vec2(center.x + 1.0, center.y), vec2(center.x, center.y + 1.0),
@@ -368,7 +379,7 @@ namespace rtt2 {
 			res
 		);
 	}
-	inline void get_trans_rotate_2_met3(const vec2 &center, rtt2_float angle, mat3 &res) { // seems to be slower
+	inline void get_trans_rotation_2_met3(const vec2 &center, rtt2_float angle, mat3 &res) { // seems to be slower
 		rtt2_float cosv = std::cos(angle), sinv = std::sin(angle);
 		res[0][0] = res[1][1] = cosv;
 		res[1][0] = -(res[0][1] = sinv);

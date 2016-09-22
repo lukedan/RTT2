@@ -50,6 +50,10 @@ namespace rtt2 {
 		void display(HDC hdc) const {
 			BitBlt(hdc, 0, 0, _w, _h, _dc, 0, 0, SRCCOPY);
 		}
+
+		void fetch(size_t x, size_t y, device_color &dc) const {
+			dc = *get_at(x, y);
+		}
 	protected:
 		size_t _w, _h;
 		HBITMAP _bmp, _old;
@@ -155,18 +159,22 @@ namespace rtt2 {
 			}
 		}
 
+		void fetch(size_t x, size_t y, T &res) const {
+			res = *get_at(x, y);
+		}
+
 		T *get_at(size_t x, size_t y) const {
 #ifdef DEBUG
 			if (x >= _w || y >= _h) {
 				throw std::range_error("invalid coords");
-	}
+			}
 #endif
 			return _arr + (_w * y + x);
-}
+		}
 	protected:
 		size_t _w, _h;
 		T *_arr;
-		};
+	};
 	typedef mem_buffer<device_color> mem_color_buffer;
 	typedef mem_buffer<rtt2_float> mem_depth_buffer;
 	typedef mem_buffer<unsigned char> mem_stencil_buffer;
@@ -194,7 +202,7 @@ namespace rtt2 {
 #ifdef DEBUG
 			if (x >= w || y >= h) {
 				throw std::range_error("invalid coords");
-	}
+			}
 #endif
 			return arr + (w * y + x);
 		}
@@ -213,7 +221,7 @@ namespace rtt2 {
 		void normalize_scr_coord(size_t x, size_t y, vec2 &r) const {
 			normalize_scr_coord(x, y, r.x, r.y);
 		}
-		};
+	};
 
 	template <typename U, typename V> void enlarged_copy(const U &src, V &dst) {
 		rtt2_float
@@ -225,4 +233,4 @@ namespace rtt2 {
 			}
 		}
 	}
-	}
+}

@@ -4,6 +4,11 @@
 
 #include "settings.h"
 
+#define RTT2_PI 3.1415926535897
+#define RTT2_SQRT2 1.4142135623731
+#define RTT2_SQRT3 1.7320508075689
+#define RTT2_SQRT5 2.2360679774998
+
 namespace rtt2 {
 	struct vec2 {
 		vec2() = default;
@@ -105,6 +110,13 @@ namespace rtt2 {
 
 		void set_zero() {
 			x = y = z = 0.0;
+		}
+		template <typename T> void set_random_on_unit_sphere(T &randomizer) {
+			rtt2_float a1 = randomizer() * RTT2_PI, a2 = randomizer() * 2.0 * RTT2_PI;
+			rtt2_float cv = std::sin(a1);
+			x = std::cos(a1);
+			y = cv * std::sin(a2);
+			z = cv * std::cos(a2);
 		}
 
 		rtt2_float length() const {

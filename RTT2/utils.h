@@ -7,13 +7,10 @@
 
 #include <Windows.h>
 
+#include "vec.h"
+
 #define RTT2_EXPAND(X) X
 #define RTT2_CONCAT(A, B) A##B
-
-#define RTT2_PI 3.1415926535897
-#define RTT2_SQRT2 1.4142135623731
-#define RTT2_SQRT3 1.7320508075689
-#define RTT2_SQRT5 2.2360679774998
 
 // FUCK WINDOWS
 #undef min
@@ -44,96 +41,100 @@ namespace rtt2 {
 		SetCursorPos(x, y);
 	}
 
+	inline rtt2_float get_random_num_01() {
+		return std::rand() / static_cast<rtt2_float>(RAND_MAX);
+	}
+
 	template <typename T> inline const T &clamp(const T &v, const T &min, const T &max) {
 		return (v > min ? (v < max ? v : max) : min);
 	}
-	void clamp_vec(vec2 &v, rtt2_float min, rtt2_float max) {
+	inline void clamp_vec(vec2 &v, rtt2_float min, rtt2_float max) {
 		v.x = clamp(v.x, min, max);
 		v.y = clamp(v.y, min, max);
 	}
-	void clamp_vec(vec2 &v, const vec2 &min, const vec2 &max) {
+	inline void clamp_vec(vec2 &v, const vec2 &min, const vec2 &max) {
 		v.x = clamp(v.x, min.x, max.x);
 		v.y = clamp(v.y, min.y, max.y);
 	}
-	void clamp_vec(vec3 &v, rtt2_float min, rtt2_float max) {
+	inline void clamp_vec(vec3 &v, rtt2_float min, rtt2_float max) {
 		v.x = clamp(v.x, min, max);
 		v.y = clamp(v.y, min, max);
 		v.z = clamp(v.z, min, max);
 	}
-	void clamp_vec(vec3 &v, const vec3 &min, const vec3 &max) {
+	inline void clamp_vec(vec3 &v, const vec3 &min, const vec3 &max) {
 		v.x = clamp(v.x, min.x, max.x);
 		v.y = clamp(v.y, min.y, max.y);
 		v.z = clamp(v.z, min.z, max.z);
 	}
-	void clamp_vec(vec4 &v, rtt2_float min, rtt2_float max) {
+	inline void clamp_vec(vec4 &v, rtt2_float min, rtt2_float max) {
 		v.x = clamp(v.x, min, max);
 		v.y = clamp(v.y, min, max);
 		v.z = clamp(v.z, min, max);
 		v.w = clamp(v.w, min, max);
 	}
-	void clamp_vec(vec4 &v, const vec4 &min, const vec4 &max) {
+	inline void clamp_vec(vec4 &v, const vec4 &min, const vec4 &max) {
 		v.x = clamp(v.x, min.x, max.x);
 		v.y = clamp(v.y, min.y, max.y);
 		v.z = clamp(v.z, min.z, max.z);
 		v.w = clamp(v.w, min.w, max.w);
 	}
 
-	void max_vec(vec2 &v, const vec2 &maxv) {
+	inline void max_vec(vec2 &v, const vec2 &maxv) {
 		v.x = std::max(v.x, maxv.x);
 		v.y = std::max(v.y, maxv.y);
 	}
-	void max_vec(vec2 &v, rtt2_float maxv) {
+	inline void max_vec(vec2 &v, rtt2_float maxv) {
 		v.x = std::max(v.x, maxv);
 		v.y = std::max(v.y, maxv);
 	}
-	void max_vec(vec3 &v, const vec3 &maxv) {
+	inline void max_vec(vec3 &v, const vec3 &maxv) {
 		v.x = std::max(v.x, maxv.x);
 		v.y = std::max(v.y, maxv.y);
 		v.z = std::max(v.z, maxv.z);
 	}
-	void max_vec(vec3 &v, rtt2_float maxv) {
+	inline void max_vec(vec3 &v, rtt2_float maxv) {
 		v.x = std::max(v.x, maxv);
 		v.y = std::max(v.y, maxv);
 		v.z = std::max(v.z, maxv);
 	}
-	void max_vec(vec4 &v, const vec4 &maxv) {
+	inline void max_vec(vec4 &v, const vec4 &maxv) {
 		v.x = std::max(v.x, maxv.x);
 		v.y = std::max(v.y, maxv.y);
 		v.z = std::max(v.z, maxv.z);
 		v.w = std::max(v.w, maxv.w);
 	}
-	void max_vec(vec4 &v, rtt2_float maxv) {
+	inline void max_vec(vec4 &v, rtt2_float maxv) {
 		v.x = std::max(v.x, maxv);
 		v.y = std::max(v.y, maxv);
 		v.z = std::max(v.z, maxv);
 		v.w = std::max(v.w, maxv);
 	}
 
-	void min_vec(vec2 &v, const vec2 &min) {
+	inline void min_vec(vec2 &v, const vec2 &min) {
 		v.x = std::min(v.x, min.x);
 		v.y = std::min(v.y, min.y);
 	}
-	void min_vec(vec2 &v, rtt2_float min) {
+	inline void min_vec(vec2 &v, rtt2_float min) {
 		v.x = std::min(v.x, min);
 		v.y = std::min(v.y, min);
 	}
-	void min_vec(vec3 &v, const vec3 &min) {
+	inline void min_vec(vec3 &v, const vec3 &min) {
 		v.x = std::min(v.x, min.x);
 		v.y = std::min(v.y, min.y);
 		v.z = std::min(v.z, min.z);
 	}
-	void min_vec(vec3 &v, rtt2_float min) {
+	inline void min_vec(vec3 &v, rtt2_float min) {
 		v.x = std::min(v.x, min);
 		v.y = std::min(v.y, min);
 		v.z = std::min(v.z, min);
 	}
-	void min_vec(vec4 &v, const vec4 &min) {
+	inline void min_vec(vec4 &v, const vec4 &min) {
 		v.x = std::min(v.x, min.x);
 		v.y = std::min(v.y, min.y);
 		v.z = std::min(v.z, min.z);
 		v.w = std::min(v.w, min.w);
 	}
-	void min_vec(vec4 &v, rtt2_float min) {
+	inline void min_vec(vec4 &v, rtt2_float min) {
 		v.x = std::min(v.x, min);
 		v.y = std::min(v.y, min);
 		v.z = std::min(v.z, min);
@@ -334,6 +335,38 @@ namespace rtt2 {
 		FILE *_f;
 	};
 
+	struct key_monitor {
+	public:
+		typedef void(*handle)();
+
+		void update() {
+			if (is_key_down(key)) {
+				if (!_ld) {
+					_ld = true;
+					on_down();
+				}
+			} else if (_ld) {
+				_ld = false;
+				on_up();
+			}
+		}
+
+		void set(int k, handle d, handle u) {
+			key = k;
+			on_down = d;
+			on_up = u;
+		}
+
+		bool down() const {
+			return _ld;
+		}
+
+		int key;
+		handle on_down, on_up;
+	protected:
+		bool _ld = false;
+	};
+
 	enum class task_status : unsigned char {
 		stopped,
 		running,
@@ -379,7 +412,8 @@ namespace rtt2 {
 	};
 	struct task_toggler {
 	public:
-		typedef void (*callback)();
+		typedef void(*callback)();
+		typedef unsigned short counter;
 
 		task_toggler(callback c, callback b) : on_clear(c), on_blocked(b) {
 		}
@@ -389,23 +423,32 @@ namespace rtt2 {
 		task_toggler *affected = nullptr;
 
 		void add_barrier() {
-			if ((++_dep) == 1) {
+			++_dep;
+		}
+		void remove_barrier() {
+			--_dep;
+		}
+
+		void check() {
+			if (_dep == 0) {
+				if (!_running) {
+					_running = true;
+					on_clear();
+					if (affected) {
+						affected->remove_barrier();
+					}
+				}
+			} else if (_running) {
 				if (affected) {
 					affected->add_barrier();
 				}
 				on_blocked();
-			}
-		}
-		void remove_barrier() {
-			if ((--_dep) == 0) {
-				on_clear();
-				if (affected) {
-					affected->remove_barrier();
-				}
+				_running = false;
 			}
 		}
 	protected:
-		size_t _dep = 0;
+		std::atomic<counter> _dep{ 0 };
+		bool _running = true;
 	};
 
 	// functions for debugging

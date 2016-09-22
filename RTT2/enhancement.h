@@ -33,9 +33,9 @@ namespace rtt2 {
 			vd->diff12 = vi[1].pos->shaded_pos - vi[0].pos->shaded_pos;
 			vd->diff13 = vi[2].pos->shaded_pos - vi[0].pos->shaded_pos;
 			rtt2_float pv, qv;
-			solve_linear_2(vd->uvd12, vd->uvd13, vec2(1.0, 0.0), pv, qv);
+			solve_parallelogram_2(vd->uvd12, vd->uvd13, vec2(1.0, 0.0), pv, qv);
 			vd->uvdx = vd->diff12 * pv + vd->diff13 * qv;
-			solve_linear_2(vd->uvd12, vd->uvd13, vec2(0.0, 1.0), pv, qv);
+			solve_parallelogram_2(vd->uvd12, vd->uvd13, vec2(0.0, 1.0), pv, qv);
 			vd->uvdy = vd->diff12 * pv + vd->diff13 * qv;
 		}
 		bool before_test_shader(const rasterizer &rast, rasterizer::frag_info &fi, rtt2_float*, unsigned char*, void *tag) const override {
@@ -46,7 +46,7 @@ namespace rtt2 {
 			vec3 xd = (fpos + sinv * fi.normal_cache) * invcosv;
 			rtt2_float zinc = sinv * invcosv;
 			rtt2_float p, q;
-			solve_linear_2(vd->diff12.xy(), vd->diff13.xy(), xd.xy(), p, q);
+			solve_parallelogram_3(vd->diff12, vd->diff13, xd, p, q);
 			vec2 pres = p * vd->uvd12 + q * vd->uvd13;
 			rtt2_float invlv = 0.5 / (pres.length() * depth_tex->get_w());
 			zinc *= invlv;
@@ -54,7 +54,7 @@ namespace rtt2 {
 			rtt2_float zv = zinc, posmult = invlv * invcosv;
 			for (size_t i = 0; i < 200; ++i, fi.uv_cache += pres, fi.pos3_cache += fpos * posmult, zv += zinc) {
 				color_vec v;
-				depth_tex->sample(fi.uv_cache, v);
+				sample(*depth_tex, fi.uv_cache, v);
 				if ((1.0 - v.x) * depth < zv) {
 					break;
 				}

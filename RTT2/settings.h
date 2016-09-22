@@ -1,7 +1,6 @@
 #pragma once
 
-//#define RTT2_FORCE_DOTCLOUD
-//#define RTT2_FORCE_WIREFRAME
+#define RTT2_PRINT_LOG
 
 #define RTT2_EPSILON (1e-6)
 

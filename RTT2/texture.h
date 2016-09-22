@@ -16,6 +16,68 @@ namespace rtt2 {
 		nearest,
 		bilinear
 	};
+
+	inline void clamp_coords(int &v, size_t max, uv_clamp_mode mode) {
+		switch (mode) {
+			case uv_clamp_mode::repeat:
+				v %= static_cast<int>(max);
+				if (v < 0) {
+					v += static_cast<int>(max);
+				}
+				break;
+			case uv_clamp_mode::repeat_border:
+				if (v < 0) {
+					v = 0;
+				} else if (static_cast<size_t>(v) >= max) {
+					v = max - 1;
+				}
+				break;
+			case uv_clamp_mode::rev_repeat:
+				int dm = max * 2;
+				v %= dm;
+				if (v < 0) {
+					v += dm;
+				}
+				if (static_cast<size_t>(v) >= max) {
+					v = dm - v - 1;
+				}
+				break;
+		}
+	}
+	template <typename U, typename V> inline void sample(const U &src, const vec2 &uv, V &res, uv_clamp_mode clampm, sample_mode sampm) {
+		switch (sampm) {
+			case sample_mode::nearest:
+			{
+				int x = static_cast<int>(std::floor(uv.x * src.get_w())), y = static_cast<int>(std::floor(uv.y * src.get_h()));
+				clamp_coords(x, src.get_w(), clampm);
+				clamp_coords(y, src.get_h(), clampm);
+				src.fetch(static_cast<size_t>(x), static_cast<size_t>(y), res);
+				break;
+			}
+			case sample_mode::bilinear:
+			{
+				rtt2_float xf = uv.x * src.get_w() - 0.5, yf = uv.y * src.get_h() - 0.5;
+				int x = static_cast<int>(std::floor(xf)), y = static_cast<int>(std::floor(yf)), x1 = x + 1, y1 = y + 1;
+				xf -= x;
+				yf -= y;
+				clamp_coords(x, src.get_w(), clampm);
+				clamp_coords(x1, src.get_w(), clampm);
+				clamp_coords(y, src.get_h(), clampm);
+				clamp_coords(y1, src.get_h(), clampm);
+				V v[4];
+				src.fetch(x, y, v[0]);
+				src.fetch(x1, y, v[1]);
+				src.fetch(x, y1, v[2]);
+				src.fetch(x1, y1, v[3]);
+				res = v[0] + (v[1] - v[0]) * (1.0 - yf) * xf + (v[2] - v[0] + (v[3] - v[2]) * xf) * yf;
+				break;
+			}
+		}
+	}
+	template <typename U, typename V> inline void sample(const U &src, const vec2 &uv, V &res) {
+		sample<U, V>(src, uv, res, src.mode_uv, src.mode_sample);
+	}
+
 	struct texture {
 	public:
 		texture() : _w(0), _h(0), _arr(nullptr), _carr_cache(nullptr), _own(true) {
@@ -47,7 +109,7 @@ namespace rtt2 {
 #ifdef DEBUG
 			if (x >= _w || y >= _h) {
 				throw std::range_error("texel fetch coord out of bounds");
-			}
+		}
 #endif
 			return _arr + (_w * y + x);
 		}
@@ -55,7 +117,7 @@ namespace rtt2 {
 #ifdef DEBUG
 			if (x >= _w || y >= _h) {
 				throw std::range_error("texel fetch coord out of bounds");
-			}
+	}
 #endif
 			return _carr_cache + (_w * y + x);
 		}
@@ -63,36 +125,9 @@ namespace rtt2 {
 #ifdef DEBUG
 			if (x >= _w || y >= _h) {
 				throw std::range_error("texel fetch coord out of bounds");
-			}
+}
 #endif
 			res = *get_vec_at(x, y);
-		}
-		void clamp_coords(int &v, size_t max, uv_clamp_mode mode) const {
-			switch (mode) {
-				case uv_clamp_mode::repeat:
-					v %= static_cast<int>(max);
-					if (v < 0) {
-						v += static_cast<int>(max);
-					}
-					break;
-				case uv_clamp_mode::repeat_border:
-					if (v < 0) {
-						v = 0;
-					} else if (static_cast<size_t>(v) >= max) {
-						v = max - 1;
-					}
-					break;
-				case uv_clamp_mode::rev_repeat:
-					int dm = max * 2;
-					v %= dm;
-					if (v < 0) {
-						v += dm;
-					}
-					if (static_cast<size_t>(v) >= max) {
-						v = dm - v - 1;
-					}
-					break;
-			}
 		}
 		void grad_x(const vec2 &uv, color_vec &res, uv_clamp_mode clampm) const {
 			int x = static_cast<int>(std::floor(uv.x * _w)), y = static_cast<int>(std::floor(uv.y * _h)), x1 = x + 1;
@@ -153,9 +188,6 @@ namespace rtt2 {
 					break;
 				}
 			}
-		}
-		void sample(const vec2 &uv, color_vec &res) const {
-			sample(uv, res, mode_uv, mode_sample);
 		}
 
 		void reset(size_t w, size_t h) {
@@ -273,8 +305,8 @@ namespace rtt2 {
 				default:
 					throw std::invalid_argument("image mode not implemented");
 #endif
+					}
 			}
-		}
 		void save_ppm(file_access &out) const {
 			out.write("P3\n%u %u\n255\n", _w, _h);
 			for (size_t y = _h; y > 0; ) {
@@ -312,5 +344,5 @@ namespace rtt2 {
 				}
 			}
 		}
-	};
+		};
 }
