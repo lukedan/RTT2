@@ -87,7 +87,7 @@ namespace rtt2 {
 		texture(const texture&) = delete;
 		texture &operator =(const texture&) = delete;
 		~texture() {
-			free_mem();
+			_free_mem();
 		}
 
 		uv_clamp_mode mode_uv = uv_clamp_mode::repeat;
@@ -109,7 +109,7 @@ namespace rtt2 {
 #ifdef DEBUG
 			if (x >= _w || y >= _h) {
 				throw std::range_error("texel fetch coord out of bounds");
-		}
+			}
 #endif
 			return _arr + (_w * y + x);
 		}
@@ -117,7 +117,7 @@ namespace rtt2 {
 #ifdef DEBUG
 			if (x >= _w || y >= _h) {
 				throw std::range_error("texel fetch coord out of bounds");
-	}
+			}
 #endif
 			return _carr_cache + (_w * y + x);
 		}
@@ -125,7 +125,7 @@ namespace rtt2 {
 #ifdef DEBUG
 			if (x >= _w || y >= _h) {
 				throw std::range_error("texel fetch coord out of bounds");
-}
+			}
 #endif
 			res = *get_vec_at(x, y);
 		}
@@ -191,14 +191,14 @@ namespace rtt2 {
 		}
 
 		void reset(size_t w, size_t h) {
-			free_mem();
+			_free_mem();
 			_w = w;
 			_h = h;
 			_arr = new device_color[_w * _h];
 			_carr_cache = nullptr;
 		}
 		void reset() {
-			free_mem();
+			_free_mem();
 			_arr = nullptr;
 			_carr_cache = nullptr;
 		}
@@ -218,13 +218,13 @@ namespace rtt2 {
 			}
 		}
 	protected:
-		int ppm_get_next_digit(file_access &acc) {
-			int c = EOF;
+		int _ppm_get_next_digit(std::istream &acc) {
+			int c = std::ifstream::traits_type::eof();
 			while (acc) {
-				c = acc.get_char();
+				c = acc.get();
 				if (c == '#') {
 					while (acc) {
-						if (acc.get_char() == '\n') {
+						if (acc.get() == '\n') {
 							break;
 						}
 					}
@@ -234,41 +234,41 @@ namespace rtt2 {
 			}
 			return c;
 		}
-		template <typename I> bool ppm_get_next_num(file_access &acc, I &res) {
-			int v = ppm_get_next_digit(acc);
+		template <typename I> bool _ppm_get_next_num(std::istream &acc, I &res) {
+			int v = _ppm_get_next_digit(acc);
 			if (v < '0' || v > '9') {
 				return false;
 			}
 			res = v - '0';
 			while (acc) {
-				int c = acc.get_char();
+				int c = acc.get();
 				if (c >= '0' && c <= '9') {
 					res = res * 10 + (c - '0');
 				} else {
-					acc.unget_char(c);
+					acc.unget();
 					break;
 				}
 			}
 			return true;
 		}
 	public:
-		void load_ppm(file_access &fin) {
-			while (fin && fin.get_char() != 'P') {
+		void load_ppm(std::istream &fin) {
+			while (fin && fin.get() != 'P') {
 			}
 			size_t w, h, maxv;
-			switch (fin.get_char()) {
+			switch (fin.get()) {
 				case '3':
-					ppm_get_next_num(fin, w);
-					ppm_get_next_num(fin, h);
+					_ppm_get_next_num(fin, w);
+					_ppm_get_next_num(fin, h);
 					reset(w, h);
-					ppm_get_next_num(fin, maxv);
+					_ppm_get_next_num(fin, maxv);
 					for (size_t y = 0; y < _h; ++y) {
 						device_color *cur = get_at(0, _h - y - 1);
 						for (size_t x = 0; x < _w; ++x, ++cur) {
 							size_t r, g, b;
-							ppm_get_next_num(fin, r);
-							ppm_get_next_num(fin, g);
-							ppm_get_next_num(fin, b);
+							_ppm_get_next_num(fin, r);
+							_ppm_get_next_num(fin, g);
+							_ppm_get_next_num(fin, b);
 							cur->set(
 								255,
 								static_cast<unsigned char>(255 * (r / static_cast<rtt2_float>(maxv))),
@@ -279,18 +279,18 @@ namespace rtt2 {
 					}
 					break;
 				case '6':
-					ppm_get_next_num(fin, w);
-					ppm_get_next_num(fin, h);
+					_ppm_get_next_num(fin, w);
+					_ppm_get_next_num(fin, h);
 					reset(w, h);
-					ppm_get_next_num(fin, maxv);
-					fin.get_char(); // get rid of the \n
+					_ppm_get_next_num(fin, maxv);
+					fin.get(); // get rid of the \n
 					for (size_t y = 0; y < _h; ++y) {
 						device_color *cur = get_at(0, _h - y - 1);
 						for (size_t x = 0; x < _w; ++x, ++cur) {
 							unsigned char
-								r = static_cast<unsigned char>(fin.get_char()),
-								g = static_cast<unsigned char>(fin.get_char()),
-								b = static_cast<unsigned char>(fin.get_char());
+								r = static_cast<unsigned char>(fin.get()),
+								g = static_cast<unsigned char>(fin.get()),
+								b = static_cast<unsigned char>(fin.get());
 							cur->set(
 								255,
 								static_cast<unsigned char>(255 * (r / static_cast<rtt2_float>(maxv))),
@@ -305,16 +305,16 @@ namespace rtt2 {
 				default:
 					throw std::invalid_argument("image mode not implemented");
 #endif
-					}
 			}
-		void save_ppm(file_access &out) const {
-			out.write("P3\n%u %u\n255\n", _w, _h);
+		}
+		void save_ppm(std::ostream &out) const {
+			out << "P3\n" << _w << " " << _h << "\n255\n";
 			for (size_t y = _h; y > 0; ) {
 				device_color *cur = _arr + _w * --y;
 				for (size_t x = 0; x < _w; ++x, ++cur) {
-					out.write("%hhu %hhu %hhu \t", cur->get_r(), cur->get_g(), cur->get_b());
+					out << cur->get_r() << " " << cur->get_g() << " " << cur->get_b() << " \t";
 				}
-				out.write("\n");
+				out << "\n";
 			}
 		}
 
@@ -330,11 +330,11 @@ namespace rtt2 {
 		}
 	protected:
 		size_t _w, _h;
-		device_color *_arr;
-		color_vec *_carr_cache;
+		device_color *_arr = nullptr;
+		color_vec *_carr_cache = nullptr;
 		bool _own;
 
-		void free_mem() {
+		void _free_mem() {
 			if (_arr) {
 				if (_own) {
 					delete[] _arr;
@@ -344,5 +344,5 @@ namespace rtt2 {
 				}
 			}
 		}
-		};
+	};
 }

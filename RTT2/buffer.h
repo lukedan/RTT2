@@ -58,7 +58,7 @@ namespace rtt2 {
 		size_t _w, _h;
 		HBITMAP _bmp, _old;
 		HDC _dc;
-		device_color *_arr;
+		device_color *_arr = nullptr;
 	};
 
 	template <size_t sz> struct sized_object {
@@ -67,8 +67,7 @@ namespace rtt2 {
 	};
 	struct dyn_sized_object {
 	public:
-		dyn_sized_object() : _placeholder(nullptr) {
-		}
+		dyn_sized_object() = default;
 		dyn_sized_object(size_t sz) : _placeholder(std::malloc(sz)) {
 		}
 		dyn_sized_object(const dyn_sized_object&) = delete;
@@ -93,12 +92,11 @@ namespace rtt2 {
 			}
 		}
 	private:
-		void *_placeholder;
+		void *_placeholder = nullptr;
 	};
 	struct dyn_mem_arr {
 	public:
-		dyn_mem_arr() : _arr(nullptr) {
-		}
+		dyn_mem_arr() = default;
 		dyn_mem_arr(size_t sz, size_t count) : _block(sz), _arr(std::malloc(_block * count)) {
 		}
 		dyn_mem_arr(const dyn_mem_arr&) = delete;
@@ -127,8 +125,8 @@ namespace rtt2 {
 			}
 		}
 	protected:
-		size_t _block;
-		void *_arr;
+		size_t _block = 0;
+		void *_arr = nullptr;
 	};
 	template <typename T> class mem_buffer {
 	public:
@@ -175,54 +173,6 @@ namespace rtt2 {
 		size_t _w, _h;
 		T *_arr;
 	};
-	typedef mem_buffer<device_color> mem_color_buffer;
-	typedef mem_buffer<rtt2_float> mem_depth_buffer;
-	typedef mem_buffer<unsigned char> mem_stencil_buffer;
-
-	class buffer_set {
-	public:
-		buffer_set() = default;
-		buffer_set(size_t ww, size_t hh, device_color *c, rtt2_float *d, unsigned char *s) : w(ww), h(hh), color_arr(c), depth_arr(d), stencil_arr(s) {
-		}
-
-		size_t w, h;
-		device_color *color_arr;
-		rtt2_float *depth_arr;
-		unsigned char *stencil_arr;
-
-		void set(size_t ww, size_t hh, device_color *c, rtt2_float *d, unsigned char *s) {
-			w = ww;
-			h = hh;
-			color_arr = c;
-			depth_arr = d;
-			stencil_arr = s;
-		}
-
-		template <typename T> T *get_at(size_t x, size_t y, T *arr) const {
-#ifdef DEBUG
-			if (x >= w || y >= h) {
-				throw std::range_error("invalid coords");
-			}
-#endif
-			return arr + (w * y + x);
-		}
-
-		void denormalize_scr_coord(rtt2_float &x, rtt2_float &y) const {
-			x = (x + 1) * 0.5 * w;
-			y = (y + 1) * 0.5 * h;
-		}
-		void denormalize_scr_coord(vec2 &r) const {
-			denormalize_scr_coord(r.x, r.y);
-		}
-		void normalize_scr_coord(size_t x, size_t y, rtt2_float &rx, rtt2_float &ry) const {
-			rx = (2 * x + 1) / static_cast<rtt2_float>(w) - 1.0;
-			ry = (2 * y + 1) / static_cast<rtt2_float>(h) - 1.0;
-		}
-		void normalize_scr_coord(size_t x, size_t y, vec2 &r) const {
-			normalize_scr_coord(x, y, r.x, r.y);
-		}
-	};
-
 	template <typename U, typename V> void enlarged_copy(const U &src, V &dst) {
 		rtt2_float
 			xenl = src.get_w() / static_cast<rtt2_float>(dst.get_w()),
@@ -232,5 +182,54 @@ namespace rtt2 {
 				*dst.get_at(x, y) = *src.get_at(static_cast<size_t>((x + 0.5) * xenl), static_cast<size_t>((y + 0.5) * yenl));
 			}
 		}
+	}
+	typedef mem_buffer<device_color> mem_color_buffer;
+
+	namespace rasterizing {
+		typedef mem_buffer<rtt2_float> mem_depth_buffer;
+		typedef mem_buffer<unsigned char> mem_stencil_buffer;
+		class buffer_set {
+		public:
+			buffer_set() = default;
+			buffer_set(size_t ww, size_t hh, device_color *c, rtt2_float *d, unsigned char *s) : w(ww), h(hh), color_arr(c), depth_arr(d), stencil_arr(s) {
+			}
+
+			size_t w, h;
+			device_color *color_arr;
+			rtt2_float *depth_arr;
+			unsigned char *stencil_arr;
+
+			void set(size_t ww, size_t hh, device_color *c, rtt2_float *d, unsigned char *s) {
+				w = ww;
+				h = hh;
+				color_arr = c;
+				depth_arr = d;
+				stencil_arr = s;
+			}
+
+			template <typename T> T *get_at(size_t x, size_t y, T *arr) const {
+#ifdef DEBUG
+				if (x >= w || y >= h) {
+					throw std::range_error("invalid coords");
+				}
+#endif
+				return arr + (w * y + x);
+			}
+
+			void denormalize_scr_coord(rtt2_float &x, rtt2_float &y) const {
+				x = (x + 1) * 0.5 * w;
+				y = (y + 1) * 0.5 * h;
+			}
+			void denormalize_scr_coord(vec2 &r) const {
+				denormalize_scr_coord(r.x, r.y);
+			}
+			void normalize_scr_coord(size_t x, size_t y, rtt2_float &rx, rtt2_float &ry) const {
+				rx = (2 * x + 1) / static_cast<rtt2_float>(w) - 1.0;
+				ry = (2 * y + 1) / static_cast<rtt2_float>(h) - 1.0;
+			}
+			void normalize_scr_coord(size_t x, size_t y, vec2 &r) const {
+				normalize_scr_coord(x, y, r.x, r.y);
+			}
+		};
 	}
 }

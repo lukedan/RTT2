@@ -90,17 +90,17 @@ namespace rtt2 {
 			}
 		}
 
-		void load_obj(file_access &acc) {
+		void load_obj(std::ifstream &acc) {
 			clear();
 			load_obj_noclear(acc);
 		}
-		void load_obj_noclear(file_access &acc) {
+		void load_obj_noclear(std::ifstream &acc) {
 			std::string s1, s2;
 			points.push_back(vec3(0.0, 0.0, 0.0));
 			normals.push_back(vec3(0.0, 0.0, 0.0));
 			uvs.push_back(vec2(0.0, 0.0));
 			while (acc) {
-				acc.get_line(s1);
+				std::getline(acc, s1);
 				s2 = "";
 				for (size_t i = 0; i < s1.length(); ++i) {
 					if (s1[i] == '/') {
@@ -181,24 +181,53 @@ namespace rtt2 {
 			}
 		}
 	};
-	class enhancement;
-	struct model {
-		model() = default;
-		model(
-			const model_data *d,
-			const material *m,
-			const mat4 *t,
-			const texture *te,
-			const enhancement *enh,
-		const color_vec &c
-		) : data(d), mtrl(m), trans(t), tex(te), enhance(enh), color(c) {
-		}
 
-		const model_data *data;
-		const material *mtrl;
-		const mat4 *trans;
-		const texture *tex;
-		const enhancement *enhance;
-		color_vec color;
-	};
+	namespace rasterizing {
+		class enhancement;
+		struct model {
+			model() = default;
+			model(
+				const model_data *d,
+				const brdf *m,
+				const mat4 *t,
+				const texture *te,
+				const enhancement *enh,
+				const color_vec &c
+			) : data(d), mtrl(m), trans(t), tex(te), enhance(enh), color(c) {
+			}
+
+			const model_data *data = nullptr;
+			const brdf *mtrl = nullptr;
+			const mat4 *trans = nullptr;
+			const texture *tex = nullptr;
+			const enhancement *enhance = nullptr;
+			color_vec color;
+		};
+	}
+	namespace raytracing {
+		struct material {
+			material() = default;
+			material(const brdf *func) : dist_func(func) {
+			}
+
+			const brdf *dist_func = nullptr;
+		};
+		struct model {
+			model() = default;
+			model(
+				const model_data *dt,
+				const mat4 *tr,
+				const texture *t,
+				const material &mt,
+				const color_vec &c
+			) : data(dt), trans(tr), tex(t), mtrl(mt), color(c) {
+			}
+
+			const model_data *data = nullptr;
+			const mat4 *trans = nullptr;
+			const texture *tex = nullptr;
+			material mtrl;
+			color_vec color;
+		};
+	}
 }

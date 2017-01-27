@@ -1,10 +1,9 @@
 #pragma once
 
-#include <cstdio>
 #include <deque>
 #include <algorithm>
 #include <atomic>
-
+#include <iomanip>
 #include <Windows.h>
 
 #include "vec.h"
@@ -41,8 +40,19 @@ namespace rtt2 {
 		SetCursorPos(x, y);
 	}
 
-	inline rtt2_float get_random_num_01() {
-		return std::rand() / static_cast<rtt2_float>(RAND_MAX);
+	typedef rtt2_float(*randomizer)();
+	inline vec3 get_random_direction_on_sphere(randomizer rand) {
+		rtt2_float a1 = rand() * RTT2_PI, a2 = rand() * 2.0 * RTT2_PI;
+		rtt2_float cv = std::sin(a1);
+		return vec3(std::cos(a1), cv * std::sin(a2), cv * std::cos(a2));
+	}
+	inline vec3 get_random_direction_on_hemisphere(const vec3 &normal, randomizer rand) {
+		vec3 vp1, vp2;
+		normal.get_max_prp(vp1);
+		vp1.set_length(1.0);
+		vec3::cross_ref(normal, vp1, vp2);
+		rtt2_float hv = rand() * RTT2_PI, vv = rand() * 2.0 * RTT2_PI;
+		return normal * std::sin(hv) + std::cos(hv) * (std::sin(vv) * vp1 + std::cos(vv) * vp2);
 	}
 
 	template <typename T> inline const T &clamp(const T &v, const T &min, const T &max) {
@@ -172,18 +182,52 @@ namespace rtt2 {
 		return true;
 	}
 
-#define RTT2_SORT3(ARR, MEM, CMP)         \
-	{                                     \
-		if (ARR[0]MEM CMP ARR[1]MEM) {    \
-			std::swap(ARR[0], ARR[1]);    \
-		}                                 \
-		if (ARR[1]MEM CMP ARR[2]MEM) {    \
-			std::swap(ARR[1], ARR[2]);    \
-		}                                 \
-		if (ARR[0]MEM CMP ARR[1]MEM) {    \
-			std::swap(ARR[0], ARR[1]);    \
-		}                                 \
-	}                                     \
+	struct hit_test_ray_triangle_results {
+		rtt2_float t, u, v;
+	};
+	inline bool hit_test_ray_triangle(
+		const vec3 &rs, const vec3 &rd, const vec3 &p1, const vec3 &p2, const vec3 &p3,
+		hit_test_ray_triangle_results &result
+	) {
+		vec3 e1 = p2 - p1, e2 = p3 - p1, p = vec3::cross(rd, e2);
+		rtt2_float
+			det = vec3::dot(p, e1);
+		vec3 t = rs - p1;
+		if (det < 0.0) {
+			det = -det;
+			t = -t;
+		}
+		result.u = vec3::dot(p, t);
+		if (result.u < 0.0 || result.u > det) {
+			return false;
+		}
+		vec3 q = vec3::cross(t, e1);
+		result.v = vec3::dot(q, rd);
+		if (result.v < 0.0 || result.u + result.v > det) {
+			return false;
+		}
+		result.t = vec3::dot(q, e2);
+		if (result.t < 0.0) {
+			return false;
+		}
+		det = 1.0 / det;
+		result.t *= det;
+		result.u *= det;
+		result.v *= det;
+		return true;
+	}
+
+	template <typename T, typename Cmp> inline void sort3(T *arr, Cmp cmp = Cmp()) {
+		if (cmp(arr[0], arr[1])) {
+			std::swap(arr[0], arr[1]);
+		}
+		if (cmp(arr[1], arr[2])) {
+			std::swap(arr[1], arr[2]);
+		}
+		if (cmp(arr[0], arr[1])) {
+			std::swap(arr[0], arr[1]);
+		}
+	}
 
 	struct fps_counter {
 	public:
@@ -241,100 +285,6 @@ namespace rtt2 {
 		long long _freq, _last;
 	};
 
-	struct file_access {
-	public:
-		file_access() : _f(nullptr) {
-		}
-		file_access(const std::string &file, const std::string &mode) {
-#ifdef _MSC_VER
-			fopen_s(&_f, file.c_str(), mode.c_str());
-#else
-			_f = std::fopen(file.c_str(), mode.c_str());
-#endif
-		}
-		file_access(const file_access&) = delete;
-		file_access &operator =(const file_access&) = delete;
-		~file_access() {
-			close();
-		}
-
-		void close() {
-			if (_f) {
-				std::fclose(_f);
-				_f = nullptr;
-			}
-		}
-
-		void write(const char *str, ...) {
-			va_list args;
-			va_start(args, str);
-#ifdef _MSC_VER
-			vfprintf_s(_f, str, args);
-#else
-			std::vfprintf(_f, str, args);
-#endif
-			va_end(args);
-		}
-		void read(const char *str, ...) {
-			va_list args;
-			va_start(args, str);
-#ifdef _MSC_VER
-			vfscanf_s(_f, str, args);
-#else
-			std::vfscanf(_f, str, args);
-#endif
-			va_end(args);
-		}
-		int get_char() {
-			return std::fgetc(_f);
-		}
-		void unget_char(int c) {
-			std::ungetc(c, _f);
-		}
-		void put_char(int c) {
-			std::fputc(c, _f);
-		}
-
-		void get_line(std::string &str, char delim = '\n') {
-			str = "";
-			for (int x = get_char(); good() && x != delim; str += static_cast<char>(x), x = get_char()) {
-			}
-		}
-
-		void write_bin(const void *obj, size_t sz) {
-			std::fwrite(obj, sz, 1, _f);
-		}
-		void read_bin(void *buf, size_t sz) {
-#ifdef _MSC_VER
-			fread_s(buf, sz, sz, 1, _f);
-#else
-			fread(buf, sz, 1, _f);
-#endif
-		}
-		template <typename T> void write_object_bin(const T &obj) {
-			write_bin(&obj, sizeof(obj));
-		}
-		template <typename T> void read_object_bin(T &obj) {
-			read_bin(&obj, sizeof(obj));
-		}
-
-		bool good() const {
-			return _f && std::ferror(_f) == 0 && std::feof(_f) == 0;
-		}
-		bool eof() const {
-			return _f == nullptr || std::feof(_f) != 0;
-		}
-		operator bool() const {
-			return good();
-		}
-
-		FILE *handle() const {
-			return _f;
-		}
-	protected:
-		FILE *_f;
-	};
-
 	struct key_monitor {
 	public:
 		typedef void(*handle)();
@@ -343,11 +293,15 @@ namespace rtt2 {
 			if (is_key_down(key)) {
 				if (!_ld) {
 					_ld = true;
-					on_down();
+					if (on_down) {
+						on_down();
+					}
 				}
 			} else if (_ld) {
 				_ld = false;
-				on_up();
+				if (on_up) {
+					on_up();
+				}
 			}
 		}
 
@@ -367,102 +321,15 @@ namespace rtt2 {
 		bool _ld = false;
 	};
 
-	enum class task_status : unsigned char {
-		stopped,
-		running,
-		cancelled
-	};
-	struct task_lock {
-	public:
-		bool try_start() {
-			task_status exp(task_status::stopped);
-			return _lock.compare_exchange_strong(exp, task_status::running);
-		}
-		bool check_cancellation_and_stop() {
-			task_status exp(task_status::cancelled);
-			return _lock.compare_exchange_strong(exp, task_status::stopped);
-		}
-
-		void set_status(task_status ts) {
-			_lock.store(ts);
-		}
-		task_status get_status() const {
-			return _lock.load();
-		}
-		void on_stopped() {
-			set_status(task_status::stopped);
-		}
-		bool cancel() {
-			task_status exp(task_status::running);
-			return _lock.compare_exchange_strong(exp, task_status::cancelled);
-		}
-		void wait() {
-			while (_lock.load() == task_status::cancelled) {
-			}
-		}
-		bool cancel_and_wait() {
-			if (cancel()) {
-				wait();
-				return true;
-			}
-			return false;
-		}
-	protected:
-		std::atomic<task_status> _lock{ task_status::stopped };
-	};
-	struct task_toggler {
-	public:
-		typedef void(*callback)();
-		typedef unsigned short counter;
-
-		task_toggler(callback c, callback b) : on_clear(c), on_blocked(b) {
-		}
-
-		callback on_clear, on_blocked;
-
-		task_toggler *affected = nullptr;
-
-		void add_barrier() {
-			++_dep;
-		}
-		void remove_barrier() {
-			--_dep;
-		}
-
-		void check() {
-			if (_dep == 0) {
-				if (!_running) {
-					_running = true;
-					on_clear();
-					if (affected) {
-						affected->remove_barrier();
-					}
-				}
-			} else if (_running) {
-				if (affected) {
-					affected->add_barrier();
-				}
-				on_blocked();
-				_running = false;
-			}
-		}
-	protected:
-		std::atomic<counter> _dep{ 0 };
-		bool _running = true;
-	};
-
 	// functions for debugging
 	template <size_t Dim> struct sqrmat;
 	template <size_t Dim> inline void print_mat(const sqrmat<Dim> &mat, size_t fw = 10, char pre = '[', char end = ']') {
-		static char buffer[10];
-
-		std::snprintf(buffer, 10, "%%%uf", fw);
 		for (size_t y = 0; y < Dim; ++y) {
-			std::printf("%c", pre);
+			std::cout << pre;
 			for (size_t x = 0; x < Dim; ++x) {
-				std::printf(buffer, mat[x][y]);
+				std::cout << std::setw(fw) << mat[x][y];
 			}
-			std::printf("%c\n", end);
+			std::cout << end;
 		}
 	}
 }

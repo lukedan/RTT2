@@ -1,6 +1,6 @@
 .vs/
 Debug/
-Release/
+Test/
 RTT2.VC.db
 RTT2/Debug/
-RTT2/Release/
+RTT2/Test/

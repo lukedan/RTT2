@@ -9,27 +9,15 @@ namespace rtt2 {
 	typedef vec3 color_vec_rgb;
 	typedef vec4 color_vec;
 
-	void color_vec_mult(const color_vec_rgb &a, const color_vec_rgb &b, color_vec &r) {
-		r.x = a.x * b.x;
-		r.y = a.y * b.y;
-		r.z = a.z * b.z;
-	}
-	void color_vec_mult(const color_vec &a, const color_vec &b, color_vec &r) {
-		r.x = a.x * b.x;
-		r.y = a.y * b.y;
-		r.z = a.z * b.z;
-		r.w = a.w * b.w;
-	}
-
 	struct color_rgb {
 		color_rgb() = default;
 		color_rgb(unsigned char rr, unsigned char gg, unsigned char bb) : r(rr), g(gg), b(bb) {
 		}
 
 		void from_vec3(const vec3 &v) {
-			r = static_cast<unsigned char>(std::round(v.x * 255.0));
-			g = static_cast<unsigned char>(std::round(v.y * 255.0));
-			b = static_cast<unsigned char>(std::round(v.z * 255.0));
+			r = static_cast<unsigned char>(clamp(std::round(v.x * 255.0), 0.0, 255.0));
+			g = static_cast<unsigned char>(clamp(std::round(v.y * 255.0), 0.0, 255.0));
+			b = static_cast<unsigned char>(clamp(std::round(v.z * 255.0), 0.0, 255.0));
 		}
 		void to_vec3(vec3 &v) {
 			v.x = r / 255.0;
@@ -45,29 +33,16 @@ namespace rtt2 {
 		}
 
 		void from_vec4(const vec4 &v) {
-			r = static_cast<unsigned char>(std::round(v.x * 255.0));
-			g = static_cast<unsigned char>(std::round(v.y * 255.0));
-			b = static_cast<unsigned char>(std::round(v.z * 255.0));
-			a = static_cast<unsigned char>(std::round(v.w * 255.0));
+			r = static_cast<unsigned char>(clamp(std::round(v.x * 255.0), 0.0, 255.0));
+			g = static_cast<unsigned char>(clamp(std::round(v.y * 255.0), 0.0, 255.0));
+			b = static_cast<unsigned char>(clamp(std::round(v.z * 255.0), 0.0, 255.0));
+			a = static_cast<unsigned char>(clamp(std::round(v.w * 255.0), 0.0, 255.0));
 		}
 		void to_vec4(vec4 &v) {
 			v.x = r / 255.0;
 			v.y = g / 255.0;
 			v.z = b / 255.0;
 			v.w = a / 255.0;
-		}
-
-		void mult(const color_rgba &rhs) {
-			r = static_cast<unsigned char>(std::round((static_cast<int>(r) * rhs.r) / 255.0));
-			g = static_cast<unsigned char>(std::round((static_cast<int>(g) * rhs.g) / 255.0));
-			b = static_cast<unsigned char>(std::round((static_cast<int>(b) * rhs.b) / 255.0));
-			a = static_cast<unsigned char>(std::round((static_cast<int>(a) * rhs.a) / 255.0));
-		}
-		void mix(const color_rgba &c1, const color_rgba &c2, const color_rgba &c3, rtt2_float v1, rtt2_float v2, rtt2_float v3) {
-			r = static_cast<unsigned char>(std::round(c1.r * v1 + c2.r * v2 + c3.r * v3));
-			g = static_cast<unsigned char>(std::round(c1.g * v1 + c2.g * v2 + c3.g * v3));
-			b = static_cast<unsigned char>(std::round(c1.b * v1 + c2.b * v2 + c3.b * v3));
-			a = static_cast<unsigned char>(std::round(c1.a * v1 + c2.a * v2 + c3.a * v3));
 		}
 
 		unsigned char r, g, b, a;
@@ -149,24 +124,6 @@ namespace rtt2 {
 		}
 		void set_b(unsigned char b) {
 			RTT2_DEVICE_COLOR_SETB(argb, b);
-		}
-
-		// two funcs below seem to be extra slow
-		void mult(const device_color &rhs) {
-			set(
-				static_cast<unsigned char>(std::round((static_cast<int>(get_a()) * rhs.get_a()) / 255.0)),
-				static_cast<unsigned char>(std::round((static_cast<int>(get_r()) * rhs.get_r()) / 255.0)),
-				static_cast<unsigned char>(std::round((static_cast<int>(get_g()) * rhs.get_g()) / 255.0)),
-				static_cast<unsigned char>(std::round((static_cast<int>(get_b()) * rhs.get_b()) / 255.0))
-			);
-		}
-		void mix(const device_color &c1, const device_color &c2, const device_color &c3, rtt2_float v1, rtt2_float v2, rtt2_float v3) {
-			set(
-				static_cast<unsigned char>(std::round(c1.get_a() * v1 + c2.get_a() * v2 + c3.get_a() * v3)),
-				static_cast<unsigned char>(std::round(c1.get_r() * v1 + c2.get_r() * v2 + c3.get_r() * v3)),
-				static_cast<unsigned char>(std::round(c1.get_g() * v1 + c2.get_g() * v2 + c3.get_g() * v3)),
-				static_cast<unsigned char>(std::round(c1.get_b() * v1 + c2.get_b() * v2 + c3.get_b() * v3))
-			);
 		}
 
 		DWORD argb;

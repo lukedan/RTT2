@@ -411,9 +411,9 @@ namespace rtt2 {
 		res[0][1] = res[0][2] = res[1][0] = res[1][2] = 0.0;
 	}
 
-	struct camera_spec {
-		vec3 pos, forward, up, right_cache;
-		rtt2_float aspect_ratio, hori_fov, znear, zfar;
+	struct camera {
+		vec3 pos, forward, up, right_cache; // these vectors must be normalized
+		rtt2_float aspect_ratio, hori_fov, znear, zfar; // aspect ratio: y / x
 
 		void make_cache() {
 			vec3::cross_ref(forward, up, right_cache);
@@ -454,7 +454,7 @@ namespace rtt2 {
 			res
 		);
 	}
-	inline void get_trans_camview_3(const camera_spec &cam, mat4 &res) {
+	inline void get_trans_camview_3(const camera &cam, mat4 &res) {
 		get_trans_camview_3(cam.pos, cam.forward, cam.up, cam.right_cache, res);
 	}
 	inline void get_trans_frustrum_3(rtt2_float hori_fov, rtt2_float aspect_ratio, rtt2_float znear, rtt2_float zfar, mat4 &res) {
@@ -469,7 +469,7 @@ namespace rtt2 {
 			res[2][0] = res[2][1] =
 			res[3][0] = res[3][1] = res[3][3] = 0.0;
 	}
-	inline void get_trans_frustrum_3(const camera_spec &cam, mat4 &res) {
+	inline void get_trans_frustrum_3(const camera &cam, mat4 &res) {
 		get_trans_frustrum_3(cam.hori_fov, cam.aspect_ratio, cam.znear, cam.zfar, res);
 	}
 }

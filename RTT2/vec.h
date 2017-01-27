@@ -95,7 +95,7 @@ namespace rtt2 {
 		}
 
 		inline static vec2 projection(const vec2 &v, const vec2 &axis) {
-			return v * (dot(v, axis) / v.sqr_length());
+			return axis * (dot(v, axis) / axis.sqr_length());
 		}
 	};
 
@@ -110,13 +110,6 @@ namespace rtt2 {
 
 		void set_zero() {
 			x = y = z = 0.0;
-		}
-		template <typename T> void set_random_on_unit_sphere(T &randomizer) {
-			rtt2_float a1 = randomizer() * RTT2_PI, a2 = randomizer() * 2.0 * RTT2_PI;
-			rtt2_float cv = std::sin(a1);
-			x = std::cos(a1);
-			y = cv * std::sin(a2);
-			z = cv * std::cos(a2);
 		}
 
 		rtt2_float length() const {
@@ -215,7 +208,7 @@ namespace rtt2 {
 		}
 
 		inline static vec3 projection(const vec3 &v, const vec3 &axis) {
-			return v * (dot(v, axis) / v.sqr_length());
+			return axis * (dot(v, axis) / axis.sqr_length());
 		}
 
 		vec2 xy() const {
@@ -323,7 +316,7 @@ namespace rtt2 {
 		}
 
 		inline static vec4 projection(const vec4 &v, const vec4 &axis) {
-			return v * (dot(v, axis) / v.sqr_length());
+			return axis * (dot(v, axis) / axis.sqr_length());
 		}
 
 		void homogenize() {
@@ -367,4 +360,14 @@ namespace rtt2 {
 			v.z = z;
 		}
 	};
+
+	inline vec2 vec_mult(const vec2 &v1, const vec2 &v2) {
+		return vec2(v1.x * v2.x, v1.y * v2.y);
+	}
+	inline vec3 vec_mult(const vec3 &v1, const vec3 &v2) {
+		return vec3(v1.x * v2.x, v1.y * v2.y, v1.z * v2.z);
+	}
+	inline vec4 vec_mult(const vec4 &v1, const vec4 &v2) {
+		return vec4(v1.x * v2.x, v1.y * v2.y, v1.z * v2.z, v1.w * v2.w);
+	}
 }

@@ -81,6 +81,14 @@ namespace rtt2 {
 			set_mouse_global_pos(x, y);
 		}
 
+		void get_client_mouse_pos(int &x, int &y) {
+			POINT p;
+			GetCursorPos(&p);
+			ScreenToClient(_hwnd, &p);
+			x = p.x;
+			y = p.y;
+		}
+
 		void show() {
 			ShowWindow(_hwnd, SW_SHOW);
 		}
